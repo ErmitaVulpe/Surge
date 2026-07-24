@@ -21,7 +21,7 @@ func TestNetworkPool_Reuse(t *testing.T) {
 	runtime := &types.RuntimeConfig{}
 
 	// First request
-	transport1 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
+	transport1, _ := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	client1 := &http.Client{Transport: transport1}
 	req1, _ := http.NewRequest("GET", server.URL, nil)
 	resp1, err := client1.Do(req1)
@@ -32,7 +32,7 @@ func TestNetworkPool_Reuse(t *testing.T) {
 	pool.ReleaseTransport(transport1)
 
 	// Second request with trace
-	transport2 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
+	transport2, _ := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	client2 := &http.Client{Transport: transport2}
 	reused := false
 	trace := &httptrace.ClientTrace{
@@ -59,7 +59,7 @@ func TestNetworkPool_IdleCleanup(t *testing.T) {
 	pool := &NetworkPool{}
 	runtime := &types.RuntimeConfig{}
 
-	transport := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
+	transport, _ := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	lease, ok := pool.transportMap[transport]
 	if !ok {
 		t.Fatal("Expected transport to be in transportMap")
@@ -81,7 +81,7 @@ func TestNetworkPool_IdleCleanup(t *testing.T) {
 	}
 
 	// Calling AcquireTransport again should stop the timer
-	pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
+	_, _ = pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	if lease.idleTimer != nil {
 		t.Error("Expected idle timer to be stopped after AcquireTransport()")
 	}
@@ -92,11 +92,11 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 	pool := &NetworkPool{}
 
 	r1 := &types.RuntimeConfig{ProxyURL: "http://proxy1"}
-	t1 := pool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, 0, "", false)
+	t1, _ := pool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t1)
 
 	r2 := &types.RuntimeConfig{ProxyURL: "http://proxy2"}
-	t2 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
+	t2, _ := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t2)
 
 	if t1 == t2 {
@@ -104,7 +104,7 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 	}
 
 	// Get with same config should reuse
-	t3 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
+	t3, _ := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t3)
 
 	if t2 != t3 {
@@ -117,10 +117,10 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 func TestNetworkPool_TLSKeyIsolation(t *testing.T) {
 	pool := &NetworkPool{}
 
-	plain := pool.AcquireTransport("", "", 0, "", false)
+	plain, _ := pool.AcquireTransport("", "", 0, "", false)
 	pool.ReleaseTransport(plain)
 
-	insecure := pool.AcquireTransport("", "", 0, "", true)
+	insecure, _ := pool.AcquireTransport("", "", 0, "", true)
 	pool.ReleaseTransport(insecure)
 
 	if plain == insecure {
@@ -142,16 +142,16 @@ func TestNetworkPool_TLSKeyIsolation(t *testing.T) {
 		}
 	}
 
-	// Verify the pool separates by TLS CA file as well
-	withCA := pool.AcquireTransport("", "", 0, "nonexistent-but-distinct-key.pem", false)
-	pool.ReleaseTransport(withCA)
-	if withCA == plain {
-		t.Error("expected distinct transport when CA file differs")
+	// Verify that invalid CA file returns an error
+	withCA, err := pool.AcquireTransport("", "", 0, "nonexistent-but-distinct-key.pem", false)
+	if err == nil {
+		t.Error("expected error when CA file does not exist")
+		pool.ReleaseTransport(withCA)
 	}
 
 	// Requesting the same key twice returns the same transport (pool reuse)
-	a := pool.AcquireTransport("", "", 0, "", true)
-	b := pool.AcquireTransport("", "", 0, "", true)
+	a, _ := pool.AcquireTransport("", "", 0, "", true)
+	b, _ := pool.AcquireTransport("", "", 0, "", true)
 	pool.ReleaseTransport(a)
 	pool.ReleaseTransport(b)
 	if a != b {

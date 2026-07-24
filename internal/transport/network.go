@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,7 +45,7 @@ var DefaultNetworkPool = &NetworkPool{
 }
 
 // AcquireTransport returns a shared transport for the given configuration.
-func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) *http.Transport {
+func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) (*http.Transport, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -59,7 +60,10 @@ func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int,
 
 	lease, ok := p.configMap[key]
 	if !ok {
-		t := p.createNewTransport(proxyURL, customDNS, maxConns, tlsCAFile, tlsInsecure)
+		t, err := p.createNewTransport(proxyURL, customDNS, maxConns, tlsCAFile, tlsInsecure)
+		if err != nil {
+			return nil, err
+		}
 		lease = &transportLease{
 			transport: t,
 			key:       key,
@@ -77,7 +81,7 @@ func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int,
 	lease.refs++
 	utils.Debug("NetworkPool: AcquireTransport (key=%+v, refs=%d)", key, lease.refs)
 
-	return lease.transport
+	return lease.transport, nil
 }
 
 // ReleaseTransport marks a specific transport lease as returned.
@@ -134,13 +138,12 @@ func (p *NetworkPool) CloseAll() {
 	p.transportMap = make(map[*http.Transport]*transportLease)
 }
 
-func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) *http.Transport {
+func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) (*http.Transport, error) {
 	utils.Debug("NetworkPool: creating new shared transport (proxy=%s, limit=%d)", proxyURL, maxConns)
 
 	tlsCfg, err := utils.BuildTLSConfig(tlsCAFile, tlsInsecure)
 	if err != nil {
-		utils.Debug("NetworkPool: ignoring invalid TLS config: %v", err)
-		tlsCfg = nil
+		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
 
 	dialer := &net.Dialer{
@@ -182,5 +185,5 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 		ForceAttemptHTTP2:  false,
 		TLSClientConfig:    tlsCfg,
 		TLSNextProto:       make(map[string]func(string, *tls.Conn) http.RoundTripper),
-	}
+	}, nil
 }

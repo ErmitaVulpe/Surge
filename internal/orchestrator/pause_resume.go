@@ -370,6 +370,22 @@ func buildResumeConfig(id, outputPath string, entry *types.DownloadRecord, saved
 		runtime.MinChunkSize = entry.MinChunkSize
 	}
 
+	if savedState != nil && savedState.Runtime != nil {
+		if savedState.Runtime.TLSCAFile != "" {
+			runtime.TLSCAFile = savedState.Runtime.TLSCAFile
+		}
+		if savedState.Runtime.TLSInsecure {
+			runtime.TLSInsecure = true
+		}
+	} else if entry != nil && entry.Runtime != nil {
+		if entry.Runtime.TLSCAFile != "" {
+			runtime.TLSCAFile = entry.Runtime.TLSCAFile
+		}
+		if entry.Runtime.TLSInsecure {
+			runtime.TLSInsecure = true
+		}
+	}
+
 	var mirrorURLs []string
 	var dmState *progress.DownloadProgress
 

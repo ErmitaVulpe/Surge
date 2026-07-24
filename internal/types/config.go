@@ -93,8 +93,12 @@ func (r *RuntimeConfig) WithTLS(caFile string, insecure bool) *RuntimeConfig {
 	if r == nil {
 		r = DefaultRuntimeConfig()
 	}
-	r.TLSCAFile = caFile
-	r.TLSInsecure = insecure
+	if caFile != "" {
+		r.TLSCAFile = caFile
+	}
+	if insecure {
+		r.TLSInsecure = insecure
+	}
 	return r
 }
 
