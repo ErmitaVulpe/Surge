@@ -14,9 +14,11 @@ import (
 )
 
 type poolKey struct {
-	proxyURL  string
-	customDNS string
-	maxConns  int
+	proxyURL    string
+	customDNS   string
+	maxConns    int
+	tlsCAFile   string
+	tlsInsecure bool
 }
 
 // transportLease tracks a specific transport's usage and cleanup lifecycle.
@@ -42,7 +44,7 @@ var DefaultNetworkPool = &NetworkPool{
 }
 
 // AcquireTransport returns a shared transport for the given configuration.
-func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int) *http.Transport {
+func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) *http.Transport {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -53,11 +55,11 @@ func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int)
 		p.transportMap = make(map[*http.Transport]*transportLease)
 	}
 
-	key := poolKey{proxyURL, customDNS, maxConns}
+	key := poolKey{proxyURL, customDNS, maxConns, tlsCAFile, tlsInsecure}
 
 	lease, ok := p.configMap[key]
 	if !ok {
-		t := p.createNewTransport(proxyURL, customDNS, maxConns)
+		t := p.createNewTransport(proxyURL, customDNS, maxConns, tlsCAFile, tlsInsecure)
 		lease = &transportLease{
 			transport: t,
 			key:       key,
@@ -132,8 +134,14 @@ func (p *NetworkPool) CloseAll() {
 	p.transportMap = make(map[*http.Transport]*transportLease)
 }
 
-func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int) *http.Transport {
+func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) *http.Transport {
 	utils.Debug("NetworkPool: creating new shared transport (proxy=%s, limit=%d)", proxyURL, maxConns)
+
+	tlsCfg, err := utils.BuildTLSConfig(tlsCAFile, tlsInsecure)
+	if err != nil {
+		utils.Debug("NetworkPool: ignoring invalid TLS config: %v", err)
+		tlsCfg = nil
+	}
 
 	dialer := &net.Dialer{
 		Timeout:   types.DialTimeout,
@@ -172,6 +180,7 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 
 		DisableCompression: true,
 		ForceAttemptHTTP2:  false,
+		TLSClientConfig:    tlsCfg,
 		TLSNextProto:       make(map[string]func(string, *tls.Conn) http.RoundTripper),
 	}
 }

@@ -169,6 +169,8 @@ type DownloadRequest struct {
 	SkipApproval       bool
 	Workers            int
 	MinChunkSize       int64
+	TLSCAFile          string
+	TLSInsecure        bool
 }
 
 // Enqueue probes and reserves a stable destination before dispatching to the queue layer.
@@ -213,7 +215,7 @@ func (mgr *LifecycleManager) enqueueResolved(ctx context.Context, req *DownloadR
 		defer func() { mgr.probeSem <- struct{}{} }()
 	}
 
-	probeResult, probeErr := probing.ProbeServerWithProxy(ctx, req.URL, req.Filename, req.Headers, settings.ToRuntimeConfig())
+	probeResult, probeErr := probing.ProbeServerWithProxy(ctx, req.URL, req.Filename, req.Headers, settings.ToRuntimeConfig().WithTLS(req.TLSCAFile, req.TLSInsecure))
 	if probeErr != nil {
 		// Distinguish between terminal client errors (invalid scheme, etc.) and
 		// server-side rejections or timeouts that we can optimistically ignore.
@@ -345,7 +347,7 @@ func (mgr *LifecycleManager) buildDownloadRecord(req *DownloadRequest, requestID
 	state := progress.New(id, 0)
 	state.SetDestPath(filepath.Join(finalPath, finalFilename))
 
-	runtime := settings.ToRuntimeConfig()
+	runtime := settings.ToRuntimeConfig().WithTLS(req.TLSCAFile, req.TLSInsecure)
 	if req.Workers > 0 {
 		maxConns := runtime.GetMaxConnectionsPerDownload()
 		if req.Workers > maxConns {

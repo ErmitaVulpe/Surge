@@ -314,10 +314,10 @@ func TestNewSingleDownloader(t *testing.T) {
 
 func TestNewSingleDownloader_TransportReuse(t *testing.T) {
 	runtime := &types.RuntimeConfig{MaxConnectionsPerDownload: 8}
-	t1 := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload())
+	t1 := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
 	defer transport.DefaultNetworkPool.ReleaseTransport(t1)
 
-	t2 := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload())
+	t2 := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
 	defer transport.DefaultNetworkPool.ReleaseTransport(t2)
 
 	if t1 != t2 {
@@ -329,10 +329,10 @@ func TestNewSingleDownloader_TransportIsolationByProxy(t *testing.T) {
 	r1 := &types.RuntimeConfig{ProxyURL: "http://127.0.0.1:8080"}
 	r2 := &types.RuntimeConfig{ProxyURL: "http://127.0.0.1:9090"}
 
-	t1 := transport.DefaultNetworkPool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, r1.GetMaxConnectionsPerDownload())
+	t1 := transport.DefaultNetworkPool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, r1.GetMaxConnectionsPerDownload(), "", false)
 	defer transport.DefaultNetworkPool.ReleaseTransport(t1)
 
-	t2 := transport.DefaultNetworkPool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, r2.GetMaxConnectionsPerDownload())
+	t2 := transport.DefaultNetworkPool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, r2.GetMaxConnectionsPerDownload(), "", false)
 	defer transport.DefaultNetworkPool.ReleaseTransport(t2)
 
 	if t1 == t2 {

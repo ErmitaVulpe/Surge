@@ -27,7 +27,7 @@ func TestPrewarmConnections_Reuse(t *testing.T) {
 	}
 
 	downloader := NewConcurrentDownloader("test-reuse", nil, nil, runtime)
-	tr := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload())
+	tr := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
 	defer transport.DefaultNetworkPool.ReleaseTransport(tr)
 	client := &http.Client{Transport: tr}
 

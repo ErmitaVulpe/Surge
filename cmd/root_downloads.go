@@ -416,6 +416,8 @@ func enqueueDownloadRequest(r *http.Request, service service.DownloadService, re
 			SkipApproval:       req.SkipApproval,
 			Workers:            req.Workers,
 			MinChunkSize:       req.MinChunkSize,
+			TLSCAFile:          globalTLSCAFile,
+			TLSInsecure:        globalInsecureTLS,
 		}
 		if reqID != "" {
 			return lifecycle.EnqueueWithID(r.Context(), dlReq, reqID)
@@ -505,6 +507,8 @@ func processDownloads(urls []string, outputDir string, port int) int {
 			Path:               outPath,
 			Mirrors:            mirrors,
 			IsExplicitCategory: isExplicit,
+			TLSCAFile:          globalTLSCAFile,
+			TLSInsecure:        globalInsecureTLS,
 		})
 		if err != nil {
 			recordPreflightDownloadError(url, outPath, err)

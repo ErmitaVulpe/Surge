@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
@@ -20,7 +21,7 @@ func TestNetworkPool_Reuse(t *testing.T) {
 	runtime := &types.RuntimeConfig{}
 
 	// First request
-	transport1 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0)
+	transport1 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	client1 := &http.Client{Transport: transport1}
 	req1, _ := http.NewRequest("GET", server.URL, nil)
 	resp1, err := client1.Do(req1)
@@ -31,7 +32,7 @@ func TestNetworkPool_Reuse(t *testing.T) {
 	pool.ReleaseTransport(transport1)
 
 	// Second request with trace
-	transport2 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0)
+	transport2 := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	client2 := &http.Client{Transport: transport2}
 	reused := false
 	trace := &httptrace.ClientTrace{
@@ -58,7 +59,7 @@ func TestNetworkPool_IdleCleanup(t *testing.T) {
 	pool := &NetworkPool{}
 	runtime := &types.RuntimeConfig{}
 
-	transport := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0)
+	transport := pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	lease, ok := pool.transportMap[transport]
 	if !ok {
 		t.Fatal("Expected transport to be in transportMap")
@@ -80,7 +81,7 @@ func TestNetworkPool_IdleCleanup(t *testing.T) {
 	}
 
 	// Calling AcquireTransport again should stop the timer
-	pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0)
+	pool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, 0, "", false)
 	if lease.idleTimer != nil {
 		t.Error("Expected idle timer to be stopped after AcquireTransport()")
 	}
@@ -91,11 +92,11 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 	pool := &NetworkPool{}
 
 	r1 := &types.RuntimeConfig{ProxyURL: "http://proxy1"}
-	t1 := pool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, 0)
+	t1 := pool.AcquireTransport(r1.ProxyURL, r1.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t1)
 
 	r2 := &types.RuntimeConfig{ProxyURL: "http://proxy2"}
-	t2 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0)
+	t2 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t2)
 
 	if t1 == t2 {
@@ -103,10 +104,66 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 	}
 
 	// Get with same config should reuse
-	t3 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0)
+	t3 := pool.AcquireTransport(r2.ProxyURL, r2.CustomDNS, 0, "", false)
 	pool.ReleaseTransport(t3)
 
 	if t2 != t3 {
 		t.Error("Expected transport reuse for identical config")
 	}
+}
+
+// TestNetworkPool_TLSKeyIsolation verifies that different TLS settings produce
+// distinct pool entries and that insecure=true sets InsecureSkipVerify on the transport.
+func TestNetworkPool_TLSKeyIsolation(t *testing.T) {
+	pool := &NetworkPool{}
+
+	plain := pool.AcquireTransport("", "", 0, "", false)
+	pool.ReleaseTransport(plain)
+
+	insecure := pool.AcquireTransport("", "", 0, "", true)
+	pool.ReleaseTransport(insecure)
+
+	if plain == insecure {
+		t.Fatal("expected distinct transports for different TLS configs")
+	}
+
+	tlsCfg := insecure.TLSClientConfig
+	if tlsCfg == nil {
+		t.Fatal("expected TLSClientConfig to be set for insecure transport")
+	}
+	if !tlsCfg.InsecureSkipVerify { //nolint:gosec // intentional test assertion
+		t.Error("expected InsecureSkipVerify=true on insecure transport")
+	}
+
+	// A plain transport must not skip verification.
+	if cfg := plain.TLSClientConfig; cfg != nil {
+		if cfg.InsecureSkipVerify { //nolint:gosec
+			t.Error("plain transport must not have InsecureSkipVerify set")
+		}
+	}
+
+	// Verify the pool separates by TLS CA file as well
+	withCA := pool.AcquireTransport("", "", 0, "nonexistent-but-distinct-key.pem", false)
+	pool.ReleaseTransport(withCA)
+	if withCA == plain {
+		t.Error("expected distinct transport when CA file differs")
+	}
+
+	// Requesting the same key twice returns the same transport (pool reuse)
+	a := pool.AcquireTransport("", "", 0, "", true)
+	b := pool.AcquireTransport("", "", 0, "", true)
+	pool.ReleaseTransport(a)
+	pool.ReleaseTransport(b)
+	if a != b {
+		t.Error("expected pool to reuse transport for identical TLS config")
+	}
+	// Verify the insecure transport has the correct TLS config
+	if a.TLSClientConfig == nil {
+		t.Fatal("expected TLSClientConfig on reused insecure transport")
+	}
+	cfg := a.TLSClientConfig
+	if !cfg.InsecureSkipVerify { //nolint:gosec
+		t.Error("reused insecure transport must still have InsecureSkipVerify=true")
+	}
+	_ = tls.Config{} // keep tls import used
 }

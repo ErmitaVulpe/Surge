@@ -354,13 +354,16 @@ func (d *ConcurrentDownloader) initMirrorStatus(rawurl string, candidateMirrors 
 }
 
 func (d *ConcurrentDownloader) setupNetwork() (*http.Client, *http.Transport) {
-	var proxyURL, customDNS string
+	var proxyURL, customDNS, tlsCAFile string
+	var tlsInsecure bool
 	if d.Runtime != nil {
 		proxyURL = d.Runtime.ProxyURL
 		customDNS = d.Runtime.CustomDNS
+		tlsCAFile = d.Runtime.TLSCAFile
+		tlsInsecure = d.Runtime.TLSInsecure
 	}
 
-	httpTransport := transport.DefaultNetworkPool.AcquireTransport(proxyURL, customDNS, types.PoolMaxConnsPerHost)
+	httpTransport := transport.DefaultNetworkPool.AcquireTransport(proxyURL, customDNS, types.PoolMaxConnsPerHost, tlsCAFile, tlsInsecure)
 	client := &http.Client{Transport: httpTransport}
 	d.applyClientSettings(client)
 	return client, httpTransport

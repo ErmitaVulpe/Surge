@@ -72,14 +72,17 @@ func ProbeServerWithProxy(ctx context.Context, rawurl string, filenameHint strin
 
 	var resp *http.Response
 
-	var proxyURL, customDNS string
+	var proxyURL, customDNS, tlsCAFile string
+	var tlsInsecure bool
 	if runCfg != nil {
 		proxyURL = runCfg.ProxyURL
 		customDNS = runCfg.CustomDNS
+		tlsCAFile = runCfg.TLSCAFile
+		tlsInsecure = runCfg.TLSInsecure
 	}
 
 	// Standardize on PoolMaxConnsPerHost for probes to match the eventual download path
-	transport_ := transport.DefaultNetworkPool.AcquireTransport(proxyURL, customDNS, types.PoolMaxConnsPerHost)
+	transport_ := transport.DefaultNetworkPool.AcquireTransport(proxyURL, customDNS, types.PoolMaxConnsPerHost, tlsCAFile, tlsInsecure)
 	defer transport.DefaultNetworkPool.ReleaseTransport(transport_)
 
 	client := &http.Client{
