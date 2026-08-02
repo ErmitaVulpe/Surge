@@ -41,6 +41,24 @@ func (d *ConcurrentDownloader) worker(ctx context.Context, id int, mirrors []str
 			d.State.ActiveWorkers.Add(1)
 		}
 
+		now := time.Now()
+		activeTask := &ActiveTask{
+			Task:        task,
+			StartTime:   now,
+			WindowStart: now,
+		}
+		if task.SharedMaxOffset != nil {
+			activeTask.SharedMaxOffset = task.SharedMaxOffset
+			activeTask.Hedged.Store(1)
+		}
+		activeTask.CurrentOffset.Store(task.Offset)
+		activeTask.StopAt.Store(task.Offset + task.Length)
+		activeTask.LastActivity.Store(now.UnixNano())
+
+		d.activeMu.Lock()
+		d.activeTasks[id] = activeTask
+		d.activeMu.Unlock()
+
 		var lastErr error
 		maxRetries := d.Runtime.GetMaxTaskRetries()
 		genericAttempt := 0
@@ -50,34 +68,25 @@ func (d *ConcurrentDownloader) worker(ctx context.Context, id int, mirrors []str
 			idx, wait := d.hostLimiter.PickMirror(mirrorHosts, currentMirrorIdx, time.Now())
 			currentMirrorIdx = idx
 			if wait > 0 {
+				activeTask.WaitingOnLimiter.Store(true)
 				if !interruptibleSleep(ctx, wait) {
+					activeTask.WaitingOnLimiter.Store(false)
 					if d.State != nil {
 						d.State.ActiveWorkers.Add(-1)
 					}
 					return ctx.Err()
 				}
+				activeTask.WaitingOnLimiter.Store(false)
 			}
 			currentURL := mirrors[currentMirrorIdx]
 
 			taskCtx, taskCancel := context.WithCancel(ctx)
 			now := time.Now()
-			activeTask := &ActiveTask{
-				Task:        task,
-				StartTime:   now,
-				Cancel:      taskCancel,
-				WindowStart: now,
-			}
-			if task.SharedMaxOffset != nil {
-				activeTask.SharedMaxOffset = task.SharedMaxOffset
-				activeTask.Hedged.Store(1)
-			}
-			activeTask.CurrentOffset.Store(task.Offset)
-			activeTask.StopAt.Store(task.Offset + task.Length)
+			activeTask.Cancel = taskCancel
+			activeTask.StartTime = now
+			activeTask.WindowStart = now
+			activeTask.WindowBytes.Store(0)
 			activeTask.LastActivity.Store(now.UnixNano())
-
-			d.activeMu.Lock()
-			d.activeTasks[id] = activeTask
-			d.activeMu.Unlock()
 
 			if d.State != nil {
 				utils.Debug("Worker %d: Setting range %d-%d to Downloading", id, task.Offset, task.Offset+task.Length)
@@ -116,16 +125,9 @@ func (d *ConcurrentDownloader) worker(ctx context.Context, id int, mirrors []str
 							id, remaining.Length, remaining.Offset)
 					}
 				}
-				d.activeMu.Lock()
-				delete(d.activeTasks, id)
-				d.activeMu.Unlock()
 				lastErr = nil
 				break
 			}
-
-			d.activeMu.Lock()
-			delete(d.activeTasks, id)
-			d.activeMu.Unlock()
 
 			if lastErr == nil {
 				d.hostLimiter.RecordSuccess(mirrorHosts[currentMirrorIdx])
@@ -157,7 +159,9 @@ func (d *ConcurrentDownloader) worker(ctx context.Context, id int, mirrors []str
 			d.ReportMirrorError(mirrors[currentMirrorIdx])
 			currentMirrorIdx = (currentMirrorIdx + 1) % len(mirrors)
 			if len(mirrors) == 1 {
+				activeTask.WaitingOnLimiter.Store(true)
 				interruptibleSleep(ctx, time.Duration(1<<genericAttempt)*types.RetryBaseDelay)
+				activeTask.WaitingOnLimiter.Store(false)
 			}
 			resumeOnRetryOffset(&task, activeTask)
 		}
@@ -168,8 +172,21 @@ func (d *ConcurrentDownloader) worker(ctx context.Context, id int, mirrors []str
 
 		if lastErr != nil {
 			utils.Debug("Worker %d: task at offset %d failed after %d retries: %v", id, task.Offset, maxRetries, lastErr)
+
+			if remain := activeTask.RemainingTask(); remain != nil {
+				queue.Push(*remain)
+			}
+
+			d.activeMu.Lock()
+			delete(d.activeTasks, id)
+			d.activeMu.Unlock()
+
 			return lastErr
 		}
+
+		d.activeMu.Lock()
+		delete(d.activeTasks, id)
+		d.activeMu.Unlock()
 	}
 }
 
@@ -222,6 +239,9 @@ func (d *ConcurrentDownloader) downloadTask(ctx context.Context, rawurl string, 
 			return fmt.Errorf("server indicated success (200) but ignored range request (expected 206)")
 		}
 	} else if resp.StatusCode != http.StatusPartialContent {
+		if types.IsPermanentHTTPStatus(resp.StatusCode) {
+			return fmt.Errorf("unexpected status: %d: %w", resp.StatusCode, types.ErrPermanentHTTP)
+		}
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
@@ -557,5 +577,6 @@ func resumeOnRetryOffset(task *types.Task, activeTask *ActiveTask) {
 		oldStart := task.Offset
 		task.Offset = current
 		task.Length = oldStart + task.Length - current
+		activeTask.Task = *task
 	}
 }

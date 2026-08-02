@@ -44,6 +44,11 @@ var DefaultNetworkPool = &NetworkPool{
 	transportMap: make(map[*http.Transport]*transportLease),
 }
 
+// sharedClientSessionCache is a process-lifetime LRU TLS session cache shared by
+// all NetworkPool transports so new dials can resume across Transport rebuilds
+// and poolKeys. Capacity 256 is host:port keyed. Do not clear on CloseAll.
+var sharedClientSessionCache = tls.NewLRUClientSessionCache(256)
+
 // AcquireTransport returns a shared transport for the given configuration.
 func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) (*http.Transport, error) {
 	p.mu.Lock()
@@ -145,6 +150,7 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 	if err != nil {
 		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
+	tlsCfg.ClientSessionCache = sharedClientSessionCache
 
 	dialer := &net.Dialer{
 		Timeout:   types.DialTimeout,
