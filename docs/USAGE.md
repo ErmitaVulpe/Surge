@@ -85,8 +85,8 @@ store. A common example is `download.microsoft.com`, which chains to
 
 ```sh
 # 1. Obtain the PEM for the missing root (example: Microsoft TLS RSA Root G2)
-curl -sO https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20Root%20Certificate%20Authority%202017.crt
-openssl x509 -inform DER -out ms-root.pem -in 'Microsoft RSA Root Certificate Authority 2017.crt'
+curl -sO https://www.microsoft.com/pkiops/certs/Microsoft%20TLS%20RSA%20Root%20G2.crt
+openssl x509 -inform DER -out ms-root.pem -in 'Microsoft TLS RSA Root G2.crt'
 
 # 2. Pass it to Surge
 surge --tls-ca-file ms-root.pem add <url>

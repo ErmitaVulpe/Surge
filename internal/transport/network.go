@@ -3,16 +3,21 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/SurgeDM/Surge/internal/types"
 	"github.com/SurgeDM/Surge/internal/utils"
 )
+
+// ErrInvalidTLSConfig is returned when the provided TLS configuration (e.g. CA file) cannot be parsed or read.
+var ErrInvalidTLSConfig = errors.New("invalid TLS configuration")
 
 type poolKey struct {
 	proxyURL    string
@@ -44,10 +49,29 @@ var DefaultNetworkPool = &NetworkPool{
 	transportMap: make(map[*http.Transport]*transportLease),
 }
 
-// sharedClientSessionCache is a process-lifetime LRU TLS session cache shared by
-// all NetworkPool transports so new dials can resume across Transport rebuilds
-// and poolKeys. Capacity 256 is host:port keyed. Do not clear on CloseAll.
-var sharedClientSessionCache = tls.NewLRUClientSessionCache(256)
+// sessionCacheMu protects sessionCaches.
+var sessionCacheMu sync.Mutex
+
+// sessionCaches is a process-lifetime LRU TLS session cache partitioned by TLS policy.
+// It ensures that sessions cannot cross trust-policy boundaries.
+var sessionCaches = make(map[tlsPolicyKey]tls.ClientSessionCache)
+
+type tlsPolicyKey struct {
+	caFile   string
+	insecure bool
+}
+
+func getSessionCache(caFile string, insecure bool) tls.ClientSessionCache {
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	key := tlsPolicyKey{caFile, insecure}
+	if c, ok := sessionCaches[key]; ok {
+		return c
+	}
+	c := tls.NewLRUClientSessionCache(256)
+	sessionCaches[key] = c
+	return c
+}
 
 // AcquireTransport returns a shared transport for the given configuration.
 func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int, tlsCAFile string, tlsInsecure bool) (*http.Transport, error) {
@@ -61,6 +85,7 @@ func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int,
 		p.transportMap = make(map[*http.Transport]*transportLease)
 	}
 
+	tlsCAFile = strings.TrimSpace(tlsCAFile)
 	key := poolKey{proxyURL, customDNS, maxConns, tlsCAFile, tlsInsecure}
 
 	lease, ok := p.configMap[key]
@@ -148,12 +173,12 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 
 	tlsCfg, err := utils.BuildTLSConfig(tlsCAFile, tlsInsecure)
 	if err != nil {
-		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTLSConfig, err)
 	}
 	if tlsCfg == nil {
 		tlsCfg = &tls.Config{}
 	}
-	tlsCfg.ClientSessionCache = sharedClientSessionCache
+	tlsCfg.ClientSessionCache = getSessionCache(tlsCAFile, tlsInsecure)
 
 	dialer := &net.Dialer{
 		Timeout:   types.DialTimeout,

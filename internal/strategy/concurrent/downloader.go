@@ -638,6 +638,8 @@ func (d *ConcurrentDownloader) saveStateSnapshot(destPath string, fileSize int64
 		RateLimitSet:    rateLimitSet,
 		Workers:         d.Runtime.Workers,
 		MinChunkSize:    d.Runtime.MinChunkSize,
+		TLSCAFile:       d.Runtime.TLSCAFile,
+		TLSInsecure:     d.Runtime.TLSInsecure,
 	}
 
 	if emitPauseEvent {

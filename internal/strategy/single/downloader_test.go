@@ -314,10 +314,16 @@ func TestNewSingleDownloader(t *testing.T) {
 
 func TestNewSingleDownloader_TransportReuse(t *testing.T) {
 	runtime := &types.RuntimeConfig{MaxConnectionsPerDownload: 8}
-	t1, _ := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
+	t1, err := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
+	if err != nil {
+		t.Fatalf("first acquire failed: %v", err)
+	}
 	defer transport.DefaultNetworkPool.ReleaseTransport(t1)
 
-	t2, _ := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
+	t2, err := transport.DefaultNetworkPool.AcquireTransport(runtime.ProxyURL, runtime.CustomDNS, runtime.GetMaxConnectionsPerDownload(), "", false)
+	if err != nil {
+		t.Fatalf("second acquire failed: %v", err)
+	}
 	defer transport.DefaultNetworkPool.ReleaseTransport(t2)
 
 	if t1 != t2 {

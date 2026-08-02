@@ -354,7 +354,17 @@ func buildResumeConfig(id, outputPath string, entry *types.DownloadRecord, saved
 		rateLimitSet = savedState.RateLimitSet
 	}
 
-	runtime := settings.ToRuntimeConfig()
+	var tlsCAFile string
+	var tlsInsecure bool
+	if savedState != nil && (savedState.TLSCAFile != "" || savedState.TLSInsecure) {
+		tlsCAFile = savedState.TLSCAFile
+		tlsInsecure = savedState.TLSInsecure
+	} else if entry != nil {
+		tlsCAFile = entry.TLSCAFile
+		tlsInsecure = entry.TLSInsecure
+	}
+
+	runtime := settings.ToRuntimeConfig().WithTLS(tlsCAFile, tlsInsecure)
 	if !rateLimitSet {
 		rateLimit = runtime.DefaultDownloadRateLimitBps
 	}
@@ -368,22 +378,6 @@ func buildResumeConfig(id, outputPath string, entry *types.DownloadRecord, saved
 		runtime.MinChunkSize = savedState.MinChunkSize
 	} else if entry != nil && entry.MinChunkSize > 0 {
 		runtime.MinChunkSize = entry.MinChunkSize
-	}
-
-	if savedState != nil && savedState.Runtime != nil {
-		if savedState.Runtime.TLSCAFile != "" {
-			runtime.TLSCAFile = savedState.Runtime.TLSCAFile
-		}
-		if savedState.Runtime.TLSInsecure {
-			runtime.TLSInsecure = true
-		}
-	} else if entry != nil && entry.Runtime != nil {
-		if entry.Runtime.TLSCAFile != "" {
-			runtime.TLSCAFile = entry.Runtime.TLSCAFile
-		}
-		if entry.Runtime.TLSInsecure {
-			runtime.TLSInsecure = true
-		}
 	}
 
 	var mirrorURLs []string
@@ -442,5 +436,7 @@ func buildResumeConfig(id, outputPath string, entry *types.DownloadRecord, saved
 		Tasks:           tasks,
 		ChunkBitmap:     chunkBitmap,
 		ActualChunkSize: actualChunkSize,
+		TLSCAFile:       tlsCAFile,
+		TLSInsecure:     tlsInsecure,
 	}
 }

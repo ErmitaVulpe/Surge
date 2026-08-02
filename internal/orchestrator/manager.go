@@ -18,6 +18,7 @@ import (
 	probing "github.com/SurgeDM/Surge/internal/probe"
 	"github.com/SurgeDM/Surge/internal/progress"
 	"github.com/SurgeDM/Surge/internal/store"
+	"github.com/SurgeDM/Surge/internal/transport"
 	"github.com/SurgeDM/Surge/internal/types"
 
 	"github.com/SurgeDM/Surge/internal/scheduler"
@@ -226,7 +227,7 @@ func (mgr *LifecycleManager) enqueueResolved(ctx context.Context, req *DownloadR
 			isTerminal = !errors.As(probeErr, &opErr) && // not a network-layer error
 				strings.Contains(urlErr.Error(), "unsupported protocol scheme")
 		}
-		isTerminal = isTerminal || errors.Is(probeErr, probing.ErrProbeRequestCreation)
+		isTerminal = isTerminal || errors.Is(probeErr, probing.ErrProbeRequestCreation) || errors.Is(probeErr, transport.ErrInvalidTLSConfig)
 
 		if isTerminal {
 			return "", "", probeErr
@@ -308,6 +309,8 @@ func (mgr *LifecycleManager) enqueueResolved(ctx context.Context, req *DownloadR
 			RateLimitSet: queuedEvent.RateLimitSet,
 			Workers:      queuedEvent.Workers,
 			MinChunkSize: queuedEvent.MinChunkSize,
+			TLSCAFile:    req.TLSCAFile,
+			TLSInsecure:  req.TLSInsecure,
 		}); err != nil {
 			utils.Debug("Lifecycle: Failed to persist queued download synchronously: %v", err)
 		}
@@ -382,6 +385,8 @@ func (mgr *LifecycleManager) buildDownloadRecord(req *DownloadRequest, requestID
 		SupportsRange:      probeResult.SupportsRange,
 		RateLimit:          rateLimit,
 		RateLimitSet:       rateLimitSet,
+		TLSCAFile:          req.TLSCAFile,
+		TLSInsecure:        req.TLSInsecure,
 	}
 
 	if mgr.eventBus != nil {
