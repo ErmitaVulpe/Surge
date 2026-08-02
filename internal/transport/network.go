@@ -150,6 +150,9 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 	if err != nil {
 		return nil, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
+	if tlsCfg == nil {
+		tlsCfg = &tls.Config{}
+	}
 	tlsCfg.ClientSessionCache = sharedClientSessionCache
 
 	dialer := &net.Dialer{

@@ -14,8 +14,8 @@ import (
 func TestNetworkPool_ClientSessionCache_SharedAcrossPoolKeys(t *testing.T) {
 	pool := &NetworkPool{}
 
-	t1 := pool.AcquireTransport("http://proxy1", "", 0)
-	t2 := pool.AcquireTransport("http://proxy2", "", 0)
+	t1, _ := pool.AcquireTransport("http://proxy1", "", 0, "", false)
+	t2, _ := pool.AcquireTransport("http://proxy2", "", 0, "", false)
 	defer pool.ReleaseTransport(t1)
 	defer pool.ReleaseTransport(t2)
 
@@ -42,7 +42,7 @@ func TestNetworkPool_ClientSessionCache_SharedAcrossPoolKeys(t *testing.T) {
 func TestNetworkPool_CloseAll_PreservesClientSessionCache(t *testing.T) {
 	pool := &NetworkPool{}
 
-	tr := pool.AcquireTransport("", "", 0)
+	tr, _ := pool.AcquireTransport("", "", 0, "", false)
 	if tr.TLSClientConfig == nil || tr.TLSClientConfig.ClientSessionCache == nil {
 		t.Fatal("expected wired ClientSessionCache before CloseAll")
 	}
@@ -51,7 +51,7 @@ func TestNetworkPool_CloseAll_PreservesClientSessionCache(t *testing.T) {
 
 	pool.CloseAll()
 
-	tr2 := pool.AcquireTransport("", "", 0)
+	tr2, _ := pool.AcquireTransport("", "", 0, "", false)
 	defer pool.ReleaseTransport(tr2)
 
 	if tr2.TLSClientConfig == nil {
@@ -68,7 +68,7 @@ func TestNetworkPool_CloseAll_PreservesClientSessionCache(t *testing.T) {
 
 func TestNetworkPool_ClientSessionCache_HTTP2Disabled(t *testing.T) {
 	pool := &NetworkPool{}
-	tr := pool.AcquireTransport("", "", 0)
+	tr, _ := pool.AcquireTransport("", "", 0, "", false)
 	defer pool.ReleaseTransport(tr)
 	assertHTTP2Disabled(t, tr)
 }
