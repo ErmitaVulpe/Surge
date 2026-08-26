@@ -889,7 +889,7 @@ func (m RootModel) getSettingUnit() string {
 		return " conns"
 	case "max_task_retries":
 		return " retries"
-	case "slow_worker_grace_period", "stall_timeout":
+	case "slow_worker_grace_period", "stall_timeout", "adaptive_concurrency_interval":
 		return " seconds"
 	case "slow_worker_threshold", "speed_ema_alpha":
 		return " (0.0-1.0)"
@@ -913,7 +913,7 @@ func formatSettingValueForEdit(value interface{}, typ config.SettingType, key st
 			kb := v / float64(utils.KiB)
 			return fmt.Sprintf("%.0f", kb)
 		}
-	case "slow_worker_grace_period", "stall_timeout":
+	case "slow_worker_grace_period", "stall_timeout", "adaptive_concurrency_interval":
 		if v, ok := asFloat64(value); ok {
 			// Values might be duration or pure float64 depending on decode/init paths.
 			// The settings parse logic handles both, but for UI string we want raw seconds.
