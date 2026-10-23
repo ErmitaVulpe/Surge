@@ -831,9 +831,6 @@ func (m *RootModel) persistSettings() error {
 			return err
 		}
 	}
-	if m.Orchestrator != nil {
-		m.Orchestrator.ApplySettings(m.Settings)
-	}
 	return nil
 }
 

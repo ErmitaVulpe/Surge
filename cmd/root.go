@@ -610,6 +610,8 @@ func startTUI(port int, exitWhenDone bool, noResume bool, releaseLock func()) er
 		case sig := <-sigChan:
 			_ = executeGlobalShutdown(fmt.Sprintf("tui signal: %s", sig))
 			p.Send(tea.Quit())
+		case <-shutDownRequested:
+			p.Send(tea.Quit())
 		case <-stopSignalListener:
 			return
 		}

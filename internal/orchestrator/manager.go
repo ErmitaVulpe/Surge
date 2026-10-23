@@ -98,9 +98,8 @@ func (mgr *LifecycleManager) buildIsNameActive() func(string, string) bool {
 func NewLifecycleManager(pool *scheduler.Scheduler, eventBus *EventBus, settings *config.Settings, isNameActive ...IsNameActiveFunc) *LifecycleManager {
 	if settings == nil {
 		settings = config.DefaultSettings()
-	} else {
-		settings = settings.Clone()
 	}
+	settings = settings.Clone()
 
 	var activeCheck IsNameActiveFunc
 	if len(isNameActive) > 0 {
@@ -121,16 +120,16 @@ func NewLifecycleManager(pool *scheduler.Scheduler, eventBus *EventBus, settings
 		aggregator = NewProgressAggregator(pool, eventBus, settings)
 	}
 
-	return &LifecycleManager{
-		settings:            settings,
-		settingsRefreshedAt: time.Now(),
-		pool:                pool,
-		eventBus:            eventBus,
-		aggregator:          aggregator,
-		isNameActive:        activeCheck,
-		probeSem:            sem,
-		inflight:            make(map[string]*inflightEnqueue),
+	mgr := &LifecycleManager{
+		pool:         pool,
+		eventBus:     eventBus,
+		aggregator:   aggregator,
+		isNameActive: activeCheck,
+		probeSem:     sem,
+		inflight:     make(map[string]*inflightEnqueue),
 	}
+	mgr.publishSettingsLocked(settings)
+	return mgr
 }
 
 // GetScheduler returns the underlying scheduler
@@ -157,14 +156,12 @@ func (mgr *LifecycleManager) Shutdown() {
 	})
 }
 
-// GetSettings returns a caller-owned snapshot; callers never mutate the live settings.
+// GetSettings returns a snapshot that callers can read without holding the lock.
 func (m *LifecycleManager) GetSettings() *config.Settings {
 	m.settingsMu.RLock()
-	settings := m.settings
-	m.settingsMu.RUnlock()
-
-	if settings != nil {
-		return settings.Clone()
+	defer m.settingsMu.RUnlock()
+	if m.settings != nil {
+		return m.settings.Clone()
 	}
 	return config.DefaultSettings()
 }
@@ -175,9 +172,30 @@ func (m *LifecycleManager) ApplySettings(s *config.Settings) {
 		return
 	}
 	m.settingsMu.Lock()
-	m.settings = s.Clone()
-	m.settingsRefreshedAt = time.Now()
+	m.publishSettingsLocked(s.Clone())
 	m.settingsMu.Unlock()
+}
+
+// publishSettingsLocked updates the live snapshot and its global speed limit.
+// Callers hold settingsMu, except during construction before the manager is shared.
+func (m *LifecycleManager) publishSettingsLocked(next *config.Settings) {
+	var nextRate int64
+	var rateChanged bool
+	if m.pool != nil && next.Network.GlobalRateLimit != nil {
+		if rate, err := utils.ParseRateLimitValue(next.Network.GlobalRateLimit.Value); err == nil {
+			nextRate = rate
+			rateChanged = true
+			if m.settings != nil && m.settings.Network.GlobalRateLimit != nil {
+				previousRate, err := utils.ParseRateLimitValue(m.settings.Network.GlobalRateLimit.Value)
+				rateChanged = err != nil || previousRate != nextRate
+			}
+		}
+	}
+	m.settings = next
+	m.settingsRefreshedAt = time.Now()
+	if rateChanged {
+		m.pool.SetGlobalRateLimit(nextRate)
+	}
 }
 
 // DownloadRequest carries the already-approved inputs needed to probe and reserve a file path.
