@@ -2,6 +2,7 @@ package tui
 
 import (
 	engineprogress "github.com/SurgeDM/Surge/internal/progress"
+	downloadservice "github.com/SurgeDM/Surge/internal/service"
 
 	"fmt"
 	"strings"
@@ -26,6 +27,9 @@ func stateProgress(state interface{}) *engineprogress.DownloadProgress {
 
 func (m RootModel) updateEvents(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if ev, ok := msg.(types.DownloadEvent); ok {
+		if ev.ResyncRequired || (ev.Type != types.EventProgress && ev.Type != types.EventBatchProgress && ev.Type != types.EventSystem) {
+			m.lifecycleRevision++
+		}
 		model, cmd := m.handleDownloadEvent(ev)
 		root, ok := model.(RootModel)
 		if !ok {
@@ -36,6 +40,45 @@ func (m RootModel) updateEvents(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case resyncDownloadsMsg:
+		if msg.revision != m.lifecycleRevision {
+			return m, m.resyncDownloadsCmd()
+		}
+		if msg.err != nil {
+			if downloadservice.IsTransientReadError(msg.err) {
+				// Log once per outage and keep a single delayed recovery pending.
+				if m.resyncRetryDelay == 0 {
+					m.addLogEntry(LogStyleError.Render("Could not refresh download state; retrying: " + msg.err.Error()))
+				}
+				m.resyncing = true
+				m.resyncRetryDelay = min(max(m.resyncRetryDelay*2, time.Second), 30*time.Second)
+				generation := m.resyncGeneration
+				return m, tea.Tick(m.resyncRetryDelay, func(time.Time) tea.Msg {
+					return resyncRetryMsg{generation: generation}
+				})
+			}
+			m.resyncing = false
+			m.resyncRetryDelay = 0
+			m.addLogEntry(LogStyleError.Render("Could not refresh download state: " + msg.err.Error()))
+			return m, nil
+		}
+		m.resyncing = false
+		m.resyncRetryDelay = 0
+		downloads := make([]*DownloadModel, 0, len(msg.statuses))
+		for _, status := range msg.statuses {
+			downloads = append(downloads, downloadModelFromStatus(status, false))
+		}
+		m.downloads = downloads
+		m.cachedTotalSpeed = m.calcTotalSpeedBps()
+		m.UpdateListItems()
+		return m, nil
+
+	case resyncRetryMsg:
+		if !m.resyncing || msg.generation != m.resyncGeneration {
+			return m, nil
+		}
+		return m, m.resyncDownloadsCmd()
+
 	case autoShutdownCheckMsg:
 		return m.refreshAutoShutdown()
 
@@ -369,8 +412,23 @@ func (m RootModel) handleDownloadEvent(msg types.DownloadEvent) (tea.Model, tea.
 		if msg.Message != "" {
 			m.addStyledLogEntry(logStarted, "\u2139 "+msg.Message)
 		}
+		if msg.ResyncRequired && m.Service != nil && !m.resyncing {
+			m.resyncing = true
+			m.resyncGeneration++
+			return m, m.resyncDownloadsCmd()
+		}
 		return m, nil
 	}
 
 	return m, nil
+}
+
+// A snapshot is applied only if no lifecycle transition occurred while it was
+// loading. Progress updates do not force retries or add polling to normal use.
+func (m RootModel) resyncDownloadsCmd() tea.Cmd {
+	service, revision := m.Service, m.lifecycleRevision
+	return func() tea.Msg {
+		statuses, err := service.List()
+		return resyncDownloadsMsg{statuses: statuses, err: err, revision: revision}
+	}
 }

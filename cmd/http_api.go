@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SurgeDM/Surge/internal/config"
 	downloadservice "github.com/SurgeDM/Surge/internal/service"
@@ -607,12 +608,19 @@ func eventsHandler(service downloadservice.DownloadService) http.HandlerFunc {
 		}
 		defer cleanup()
 
-		flusher, ok := w.(http.Flusher)
+		_, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 			return
 		}
-		flusher.Flush()
+		controller := http.NewResponseController(w)
+		defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+		if err := prepareSSEWrite(controller); err != nil {
+			return
+		}
+		if err := flushSSEWrite(controller); err != nil {
+			return
+		}
 
 		done := r.Context().Done()
 		for {
@@ -633,14 +641,43 @@ func eventsHandler(service downloadservice.DownloadService) http.HandlerFunc {
 					continue
 				}
 
-				for _, frame := range frames {
-					_, _ = fmt.Fprintf(w, "event: %s\n", frame.Event)
-					_, _ = fmt.Fprintf(w, "data: %s\n\n", frame.Data)
+				if err := prepareSSEWrite(controller); err != nil {
+					return
 				}
-				flusher.Flush()
+				for _, frame := range frames {
+					if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", frame.Event, frame.Data); err != nil {
+						return
+					}
+				}
+				if err := flushSSEWrite(controller); err != nil {
+					return
+				}
 			}
 		}
 	}
+}
+
+// Bound writes per SSE batch so a stalled socket cannot retain a subscriber
+// indefinitely. Test/middleware writers may not expose deadline support.
+func prepareSSEWrite(controller *http.ResponseController) error {
+	err := controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
+	}
+	return err
+}
+
+// Flush under the current deadline, then leave idle streams without a deadline.
+// An expired write deadline cannot reliably be renewed after an idle interval.
+func flushSSEWrite(controller *http.ResponseController) error {
+	if err := controller.Flush(); err != nil {
+		return err
+	}
+	err := controller.SetWriteDeadline(time.Time{})
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
+	}
+	return err
 }
 
 func requireMethod(method string, next http.HandlerFunc) http.HandlerFunc {
