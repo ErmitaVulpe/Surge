@@ -43,7 +43,7 @@ func newListCommand() *cobra.Command {
 			if err := validateLSFlags(len(args), jsonOutput, watch); err != nil {
 				return clioutput.NewError(clioutput.InvalidArguments, err.Error(), err)
 			}
-			if err := initializeGlobalState(); err != nil {
+			if err := initializeClientState(); err != nil {
 				return err
 			}
 

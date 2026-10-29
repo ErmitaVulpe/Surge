@@ -370,31 +370,7 @@ func (s *LocalDownloadService) GetStatus(id string) (*types.DownloadStatus, erro
 	}
 	entry, err := store.GetDownload(id)
 	if err == nil && entry != nil {
-		var progress float64
-		if entry.TotalSize > 0 {
-			progress = float64(entry.Downloaded) * 100 / float64(entry.TotalSize)
-		} else if entry.Status == "completed" {
-			progress = 100.0
-		}
-		status := types.DownloadStatus{
-			Moving:           store.IsMoving(id),
-			CategoryOverride: entry.CategoryOverride,
-			ID:               entry.ID,
-			URL:              entry.URL,
-			Filename:         entry.Filename,
-			DestPath:         entry.DestPath,
-			TotalSize:        entry.TotalSize,
-			Downloaded:       entry.Downloaded,
-			Progress:         progress,
-			Speed:            completedSpeedBps(*entry),
-			Status:           entry.Status,
-			Error:            entry.Error,
-			TimeTaken:        entry.TimeTaken,
-			AvgSpeed:         entry.AvgSpeed,
-			RateLimit:        entry.RateLimit,
-			RateLimitSet:     entry.RateLimitSet,
-		}
-		status.FileMissing = completedFileMissing(status.Status, status.DestPath)
+		status := statusFromDownloadRecord(*entry)
 		return &status, nil
 	}
 	return nil, types.ErrNotFound
@@ -692,4 +668,32 @@ func completedFileMissing(status, path string) bool {
 	}
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+func statusFromDownloadRecord(entry types.DownloadRecord) types.DownloadStatus {
+	var progress float64
+	if entry.TotalSize > 0 {
+		progress = float64(entry.Downloaded) * 100 / float64(entry.TotalSize)
+	} else if entry.Status == "completed" {
+		progress = 100.0
+	}
+	return types.DownloadStatus{
+ Moving: store.IsMoving(entry.ID),
+ CategoryOverride: entry.CategoryOverride,
+ FileMissing: completedFileMissing(entry.Status, entry.DestPath),
+		ID:           entry.ID,
+		URL:          entry.URL,
+		Filename:     entry.Filename,
+		DestPath:     entry.DestPath,
+		TotalSize:    entry.TotalSize,
+		Downloaded:   entry.Downloaded,
+		Progress:     progress,
+		Speed:        completedSpeedBps(entry),
+		Status:       entry.Status,
+		Error:        entry.Error,
+		TimeTaken:    entry.TimeTaken,
+		AvgSpeed:     entry.AvgSpeed,
+		RateLimit:    entry.RateLimit,
+		RateLimitSet: entry.RateLimitSet,
+	}
 }
