@@ -140,7 +140,8 @@
         },
         "reused_bytes": {
           "type": "string",
-          "pattern": "^[0-9]+$"
+          "pattern": "^[0-9]+$",
+          "description": "Legacy checkpoint-based estimate; actual reuse is unknown when reused_bytes_exact is false."
         },
         "duration_seconds": {
           "type": "number",
@@ -152,6 +153,15 @@
             "null"
           ],
           "minimum": 0
+        },
+        "checkpoint_bytes": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Saved byte offset before the resume attempt."
+        },
+        "reused_bytes_exact": {
+          "type": "boolean",
+          "description": "False when actual byte reuse cannot be confirmed, including resumed work."
         }
       }
     },

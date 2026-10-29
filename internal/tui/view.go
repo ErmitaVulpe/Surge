@@ -17,20 +17,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Viewport layout
-const maxUIDuration = 30 * 24 * time.Hour
-
 // formatDurationForUI formats a duration as a human-readable clock string.
 // Returns "M:SS" for sub-hour durations, "H:MM:SS" for multi-hour, "Xd Yh" for days.
 func formatDurationForUI(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}
-	if d >= maxUIDuration {
-		return "\u221e"
-	}
-
-	totalSec := int(d.Seconds())
+	totalSec := int64(d / time.Second)
 
 	if totalSec >= 86400 {
 		days := totalSec / 86400
@@ -767,12 +760,18 @@ func renderFocusedDetails(d *DownloadModel, w int, spinnerView string) string {
 	} else if d.rateLimited {
 		speedStr = "Rate limited, retrying..."
 		etaStr = "..."
-	} else if d.paused || d.Speed == 0 {
+	} else if d.phase == "verifying" || d.phase == "finalizing" {
+		speedStr = d.phase
+		etaStr = "--"
+	} else if d.paused {
 		speedStr = "Paused"
 		if d.RateLimitSet && d.RateLimit > 0 {
 			speedStr += fmt.Sprintf(" (Limit: %s)", utils.FormatRateLimitDisplay(d.RateLimit))
 		}
 		etaStr = "\u221e"
+	} else if d.Speed <= 0 {
+		speedStr = "Waiting for transfer"
+		etaStr = "--"
 	} else {
 		speedStr = utils.FormatSpeed(d.Speed)
 		if d.RateLimitSet && d.RateLimit > 0 {
@@ -896,7 +895,7 @@ func (m RootModel) calcTotalSpeedBps() int64 {
 	total := int64(0)
 	for _, d := range m.downloads {
 		// Skip completed downloads
-		if d.done {
+		if d.done || d.paused || d.pausing || d.err != nil || d.phase == "verifying" || d.phase == "finalizing" {
 			continue
 		}
 		total += int64(d.Speed)

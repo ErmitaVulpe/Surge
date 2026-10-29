@@ -67,3 +67,38 @@ destination. After a successful publication, failure to remove the working hard
 link is logged separately and does not change the completed outcome. Transfer
 startup refuses to write through a working name linked to an existing artifact,
 including when recovering an older checkpoint after a crash.
+
+## Progress and terminal behavior
+
+Progress goes to stderr; final receipts go to stdout. `--progress auto` uses a
+compact terminal display when stderr is a terminal, sparse plain lines for human
+piped output, and no progress for nonterminal JSON output. `bar`, `plain`, and
+`none` select an explicit policy. Bar mode degrades to plain when stderr is not a
+terminal or `TERM=dumb`; stdout redirection does not decide animation policy.
+
+`--color auto|always|never` controls color independently. Auto respects `NO_COLOR`.
+`--ascii` changes decorations/truncation markers, retaining original filenames.
+`--quiet` suppresses human success/progress chatter, never requested JSON.
+
+Frames refresh at most five times per second, coalesce unchanged state, and adapt
+to stderr's current width/height. Plain output appends only on state transitions
+or after five seconds. Unknown size shows bytes without a percentage or ETA;
+verification/finalization suppress transfer-rate claims. Aggregate speed counts
+active transfers only; unknown-size jobs are counted explicitly. Per-job ETA may
+span days and is absent for invalid rates or unknown totals. Connections show
+active/effective configured ceiling when the daemon reports the ceiling.
+
+Rendering runs on its own goroutine using one replaceable scalar snapshot per
+owned job. Formatting and writes happen after releasing the snapshot mutex.
+Shutdown waits at most 100 ms for a blocked renderer; a frozen terminal cannot
+block transfer workers, checkpoint persistence, or the final stdout result.
+No alternate-screen or cursor-hiding mode is used. TUI and foreground views share
+finite-rate/ETA rules; stopped jobs' historical rates are excluded from live totals.
+
+`reused_bytes` retains its v1 decimal-string type and checkpoint-based estimate.
+The additive `checkpoint_bytes` field identifies that saved offset explicitly.
+`reused_bytes_exact` is false for resumed work: ranges or validators can force a
+restart, so the estimate is not proof of actual reuse. Resumed work reports a null
+`average_bytes_per_second` instead of inventing a transfer rate. Fresh downloads
+report exact zero reused bytes and an invocation average including probing and
+verification. Older v1 receipts may omit the new checkpoint and exactness fields.
