@@ -24,6 +24,7 @@ type waitArtifact struct {
 	Path         string `json:"path"`
 	SizeBytes    string `json:"size_bytes"`
 	Verification string `json:"verification"`
+	SHA256       string `json:"sha256,omitempty"`
 }
 
 type waitItem struct {
@@ -38,7 +39,7 @@ type waitItem struct {
 func newWaitCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use: "wait ID...", Short: "Wait for selected downloads to finish finalization",
-		Long: "Wait for a fixed set of daemon jobs. Timeout and Ctrl+C detach observation and leave jobs running. Completed receipts identify artifacts on the daemon's filesystem; they do not certify a checksum.",
+		Long: "Wait for a fixed set of daemon jobs. Timeout and Ctrl+C detach observation and leave jobs running. Completed receipts identify artifacts on the daemon's filesystem; they include a verified SHA-256 only when the job requested verification.",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 || len(args) > maxWaitIDs {
 				return clioutput.NewError(clioutput.InvalidArguments, "Provide between 1 and 256 download IDs.", nil)
@@ -211,12 +212,22 @@ func observeDownloads(ctx context.Context, ids []string, lookup func(context.Con
 			}
 			switch status.Status {
 			case "completed":
-				items[i].Artifact = &waitArtifact{Location: location, Server: server, Path: status.DestPath, SizeBytes: items[i].DownloadedBytes, Verification: "not_requested"}
+				items[i].Artifact = &waitArtifact{Location: location, Server: server, Path: status.DestPath, SizeBytes: items[i].DownloadedBytes, Verification: "not_requested", SHA256: status.Artifact.SHA256}
+				if status.Artifact.Verification == "verified" {
+					items[i].Artifact.Verification = "verified"
+				}
 			case "paused", "cancelled":
 				failure := clioutput.Describe(clioutput.NewError(clioutput.Conflict, "The job is stopped; explicitly resume it before waiting for completion.", nil))
 				items[i].Error = &failure
 			case "error":
-				failure := clioutput.Describe(clioutput.NewError(clioutput.OperationFailed, "The download failed; inspect its state before retrying.", nil))
+				code, message := clioutput.OperationFailed, "The download failed; inspect its state before retrying."
+				if status.ErrorCode == "integrity_mismatch" {
+					code, message = clioutput.Conflict, "Artifact verification failed; working data was retained for inspection."
+				}
+				if status.ErrorCode == "destination_exists" {
+					code, message = clioutput.Conflict, "Destination already exists; working data was retained."
+				}
+				failure := clioutput.Describe(clioutput.NewError(code, message, nil))
 				items[i].Error = &failure
 			default:
 				continue
@@ -289,7 +300,11 @@ func writeWaitResult(cmd *cobra.Command, items []waitItem, err error) error {
 	for _, item := range items {
 		text := fmt.Sprintf("%q: %s", item.ID, item.Status)
 		if item.Artifact != nil {
-			text += fmt.Sprintf(" -> %s %q (%s bytes, checksum not requested)", item.Artifact.Location, item.Artifact.Path, item.Artifact.SizeBytes)
+			verification := "checksum not requested"
+			if item.Artifact.Verification == "verified" {
+				verification = "sha256 verified"
+			}
+			text += fmt.Sprintf(" -> %s %q (%s bytes, %s)", item.Artifact.Location, item.Artifact.Path, item.Artifact.SizeBytes, verification)
 		}
 		if item.Error != nil {
 			text += ": " + item.Error.Message
