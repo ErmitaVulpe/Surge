@@ -40,7 +40,10 @@ printf 'another-token\n' > "$state"
 reject 'replaced state link'
 rm "$state"
 ln -s "$token" "$state"
-bash "$checker" "$token" "$state" touch "$started"
+SURGE_TOKEN=inherited-token bash "$checker" "$token" "$state" bash -c '
+  test "${SURGE_TOKEN+x}" != x || exit 1
+  touch "$1"
+' _ "$started"
 test -f "$started"
 test "$(cat "$token")" = test-secret
 printf 'Token startup checks passed\n'

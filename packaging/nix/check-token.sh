@@ -16,4 +16,6 @@ if [ ! "$token_file" -ef "$state_token" ]; then
   exit 1
 fi
 
+# Keep the validated token file authoritative over the inherited environment.
+unset SURGE_TOKEN
 exec "$@"
