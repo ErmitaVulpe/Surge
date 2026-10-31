@@ -123,6 +123,8 @@ type SettingsKeyMap struct {
 	Tab3             key.Binding
 	Tab4             key.Binding
 	Tab5             key.Binding
+	Tab6             key.Binding
+	Tab7             key.Binding
 	NextTab          key.Binding
 	PrevTab          key.Binding
 	Browse           key.Binding
@@ -245,6 +247,20 @@ func LoadKeyMap() (*KeyMap, error) {
 			fmt.Sprintf("Config: keymap file is corrupt (%v) \u2014 all keybindings reset to defaults & rewrite the file", err))
 		err = SaveKeyMap(defaults)
 		return defaults, err
+	}
+
+	// Update saved descriptions from the former default settings groups.
+	oldTabHelp := map[string]struct{ old, new string }{
+		"tab2": {"network", defaults.Settings.Tab2.Help().Desc},
+		"tab3": {"performance", defaults.Settings.Tab3.Help().Desc},
+		"tab4": {"categories", defaults.Settings.Tab4.Help().Desc},
+		"tab5": {"extension", defaults.Settings.Tab5.Help().Desc},
+	}
+	for name, binding := range cfg.Settings {
+		if migration, ok := oldTabHelp[strings.ToLower(name)]; ok && binding.Help == migration.old {
+			binding.Help = migration.new
+			cfg.Settings[name] = binding
+		}
 	}
 
 	defaults.ApplyConfig(&cfg)
@@ -696,20 +712,22 @@ func DefaultKeyMap() *KeyMap {
 			),
 			Tab2: key.NewBinding(
 				key.WithKeys("2"),
-				key.WithHelp("2", "network"),
+				key.WithHelp("2", "downloads"),
 			),
 			Tab3: key.NewBinding(
 				key.WithKeys("3"),
-				key.WithHelp("3", "performance"),
+				key.WithHelp("3", "appearance"),
 			),
 			Tab4: key.NewBinding(
 				key.WithKeys("4"),
-				key.WithHelp("4", "categories"),
+				key.WithHelp("4", "network"),
 			),
 			Tab5: key.NewBinding(
 				key.WithKeys("5"),
-				key.WithHelp("5", "extension"),
+				key.WithHelp("5", "categories"),
 			),
+			Tab6: key.NewBinding(key.WithKeys("6"), key.WithHelp("6", "extension")),
+			Tab7: key.NewBinding(key.WithKeys("7"), key.WithHelp("7", "advanced")),
 			NextTab: key.NewBinding(
 				key.WithKeys("right", "l"),
 				key.WithHelp("\u2192/l", "next tab"),
@@ -892,7 +910,7 @@ func (k SettingsKeyMap) ShortHelp() []key.Binding {
 
 func (k SettingsKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5},
+		{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.Tab7},
 		{k.PrevTab, k.NextTab, k.Up, k.Down, k.Edit, k.Reset, k.Browse, k.ReportBug, k.Close},
 		{k.MoveCategoryUp, k.MoveCategoryDown, k.DeleteCategory, k.ResetAll},
 	}

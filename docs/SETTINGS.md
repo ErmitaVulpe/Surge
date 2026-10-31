@@ -2,6 +2,10 @@
 
 This document covers all configuration options available in Surge. For CLI commands and flags, see the [CLI reference](reference/cli.md).
 
+## Settings screen
+
+The TUI groups options into General, Downloads, Appearance, Network, Categories, Extension, and Advanced. Use the numbered tabs or left and right arrows to switch groups. The configuration file keeps its existing sections independently of these display groups. Deprecated `dial_hedge_count` is accepted for compatibility but is hidden from the settings screen.
+
 ## Configuration File
 
 You can **access the settings in TUI** or configure them via the CLI tool `surge config`. 
@@ -114,10 +118,19 @@ Surge follows OS conventions for storing its files. Below is a breakdown of ever
 | `auto_start`           | bool   | Install the current user's Surge service and start it with that user's login session. (See [Run Surge as a service](guides/run-as-a-service.md)). | `false` |
 | `skip_update_check`    | bool   | Disable automatic check for new versions on startup.                                               | `false` |
 | `clipboard_monitor`    | bool   | Watch the system clipboard for URLs and prompt to download them.                                   | `true`  |
+| `log_retention_count`  | int    | Number of recent log files to keep.                                                                | `5`     |
+
+### Appearance Settings
+
+These options are stored in the `[general]` section of the configuration file.
+
+| Key | Type | Description | Default |
+| :-- | :--- | :---------- | :------ |
 | `theme`                | int    | UI Theme (0=Adaptive, 1=Light, 2=Dark).                                                            | `0`     |
 | `theme_path`           | string | Path to a custom `.toml` color scheme or name of theme in the `themes` directory. See [THEMES.md](THEMES.md). | `""`    |
-| `log_retention_count`  | int    | Number of recent log files to keep.                                                                | `5`     |
+| `transparent_background` | bool | Use the terminal background throughout the TUI. Terminal transparency is configured in the terminal. | `false` |
 | `live_speed_graph`     | bool   | Use live speed for graph instead of EMA smoothed speed.                                            | `false` |
+| `show_speed_graph` | bool | Show the speed graph on the dashboard. | `true` |
 
 ### Connection Settings
 
@@ -164,7 +177,7 @@ Category rules are checked from top to bottom; the first matching rule determine
 
 These dialogs initially select **Cancel**. Changes remain staged in Settings until you save and close it.
 
-Category rows show their own shortcut help. Left/right tab switching is inactive while the category list is focused; use `1`–`5` to switch settings tabs. In a category editor, Tab/Down and Shift+Tab/Up move between fields. The `Reset`, `ResetAll`, and `DeleteCategory` bindings can be customized in the `settings` section of the keymap.
+Category rows show their own shortcut help. Left/right tab switching is inactive while the category list is focused; use `1`–`7` to switch settings tabs. In a category editor, Tab/Down and Shift+Tab/Up move between fields. The `Reset`, `ResetAll`, and `DeleteCategory` bindings can be customized in the `settings` section of the keymap.
 
 ### Assigning a download category
 

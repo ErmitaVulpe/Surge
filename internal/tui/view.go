@@ -46,17 +46,24 @@ func formatDurationForUI(d time.Duration) string {
 
 // renderModalWithOverlay renders a modal centered on the themed surface.
 func (m RootModel) renderModalWithOverlay(modal string) string {
-	// Place modal centered with dark gray background fill for overlay effect
+	style := lipgloss.NewStyle()
+	if !m.transparentBackground() {
+		style = style.Background(colors.Background())
+	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal,
-		lipgloss.WithWhitespaceChars(" "), // Changed from "░" to avoid terminal rendering glitches
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(colors.Background())),
-	)
+		lipgloss.WithWhitespaceChars(" "), lipgloss.WithWhitespaceStyle(style))
+}
+
+func (m RootModel) transparentBackground() bool {
+	return m.Settings != nil && m.Settings.General.TransparentBackground != nil && config.Resolve[bool](m.Settings.General.TransparentBackground)
 }
 
 func (m RootModel) wrapView(content string) tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
-	v.BackgroundColor = colors.Background()
+	if !m.transparentBackground() {
+		v.BackgroundColor = colors.Background()
+	}
 	v.ForegroundColor = colors.Foreground()
 	return v
 }

@@ -148,6 +148,12 @@ func shortSettingsCategoryLabel(label string) string {
 	switch label {
 	case "General":
 		return "Gen"
+	case "Downloads":
+		return "DLs"
+	case "Advanced":
+		return "Adv"
+	case "Appearance":
+		return "Look"
 	case "Network":
 		return "Net"
 	case "Performance":
@@ -350,7 +356,7 @@ func (m RootModel) renderSettingsListViewport(settingsMeta []config.SettingMeta,
 		style := lipgloss.NewStyle().Foreground(colors.LightGray())
 		if idx == selectedRow {
 			if m.SettingsFocusedPane == 1 {
-				prefix = "\u25b8 "
+				prefix = "> "
 				style = lipgloss.NewStyle().Foreground(colors.Cyan()).Bold(true)
 			} else {
 				prefix = "  "
@@ -477,6 +483,12 @@ func (m RootModel) renderSettingsDetailBlock(settingsMeta []config.SettingMeta, 
 			if meta.Key == "max_global_connections" {
 				valueStr += " (Ignored)"
 			}
+		}
+	}
+
+	if meta.Key == "default_download_dir" && !m.SettingsIsEditing {
+		if path, ok := value.(string); ok && path == "" {
+			valueStr = "(current directory)"
 		}
 	}
 
@@ -715,12 +727,9 @@ func (m RootModel) getSettingsValues(category string) map[string]interface{} {
 		return values
 	}
 
-	for _, cat := range m.Settings.CategoriesList {
-		if cat.Name == category {
-			for _, set := range cat.Settings {
-				values[set.Key] = set.Value
-			}
-			break
+	for _, meta := range config.GetSettingsMetadata()[category] {
+		if setting := m.Settings.FindSetting(category, meta.Key); setting != nil {
+			values[meta.Key] = setting.Value
 		}
 	}
 
