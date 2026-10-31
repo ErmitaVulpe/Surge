@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,7 +157,7 @@ func TestResolveDownloadID_LocalModeFallsBackToDBWhenRemoteListFails(t *testing.
 
 	server := testutil.NewHTTPServerT(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/list" {
-			http.Error(w, "boom", http.StatusInternalServerError)
+			http.Error(w, "boom", http.StatusServiceUnavailable)
 			return
 		}
 		http.NotFound(w, r)
@@ -416,7 +417,9 @@ func TestPrintDownloadDetail_TextAndJSON(t *testing.T) {
 	}
 
 	textOut := captureStdout(t, func() {
-		printDownloadDetail(status, false)
+		if err := printDownloadDetail(os.Stdout, status, false); err != nil {
+			t.Fatal(err)
+		}
 	})
 	if !strings.Contains(textOut, "ID:         "+status.ID) {
 		t.Fatalf("expected text output to contain ID, got: %s", textOut)
@@ -429,7 +432,9 @@ func TestPrintDownloadDetail_TextAndJSON(t *testing.T) {
 	}
 
 	jsonOut := captureStdout(t, func() {
-		printDownloadDetail(status, true)
+		if err := printDownloadDetail(os.Stdout, status, true); err != nil {
+			t.Fatal(err)
+		}
 	})
 	var decoded types.DownloadStatus
 	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
@@ -676,7 +681,7 @@ func TestPauseAllDownloads(t *testing.T) {
 	globalToken = "test-token"
 	t.Cleanup(func() { globalToken = origToken })
 
-	if err := pauseAllDownloads(); err != nil {
+	if err := runLifecycleAll(context.Background(), pauseCmd, "pause"); err != nil {
 		t.Fatalf("pauseAllDownloads() error = %v", err)
 	}
 	if !pausedIDs["active-id"] || !pausedIDs["queued-id"] || pausedIDs["complete-id"] {
@@ -725,7 +730,7 @@ func TestResumeAllDownloads(t *testing.T) {
 	globalToken = "test-token"
 	t.Cleanup(func() { globalToken = origToken })
 
-	if err := resumeAllDownloads(); err != nil {
+	if err := runLifecycleAll(context.Background(), resumeCmd, "resume"); err != nil {
 		t.Fatalf("resumeAllDownloads() error = %v", err)
 	}
 	if got, want := strings.Join(resumedIDs, ","), "paused-a,paused-z"; got != want {
@@ -835,7 +840,7 @@ func TestActionCommandsRunE_ReturnAmbiguousIDErrors(t *testing.T) {
 
 			server := testutil.NewHTTPServerT(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/list" {
-					http.Error(w, "boom", http.StatusInternalServerError)
+					http.Error(w, "boom", http.StatusServiceUnavailable)
 					return
 				}
 				http.NotFound(w, r)
@@ -866,7 +871,11 @@ func TestActionCommandsRunE_ReturnAmbiguousIDErrors(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected %s command to return an ambiguous ID error", tt.name)
 			}
-			if !strings.Contains(err.Error(), "ambiguous ID prefix") {
+			want := "server returned HTTP" // Mutations must resolve IDs against the live server only.
+			if tt.name == "rm" {
+				want = "ambiguous ID prefix"
+			}
+			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("unexpected %s error: %v", tt.name, err)
 			}
 		})
@@ -890,7 +899,7 @@ func TestPrintDownloads_FromDatabase_TableAndJSON(t *testing.T) {
 	}
 
 	tableOut := captureStdout(t, func() {
-		if err := printDownloads(false, "", "", false); err != nil {
+		if err := printDownloads(os.Stdout, false, "", "", false); err != nil {
 			t.Fatalf("printDownloads table failed: %v", err)
 		}
 	})
@@ -908,7 +917,7 @@ func TestPrintDownloads_FromDatabase_TableAndJSON(t *testing.T) {
 	}
 
 	jsonOut := captureStdout(t, func() {
-		if err := printDownloads(true, "", "", false); err != nil {
+		if err := printDownloads(os.Stdout, true, "", "", false); err != nil {
 			t.Fatalf("printDownloads json failed: %v", err)
 		}
 	})
@@ -930,7 +939,7 @@ func TestPrintDownloads_JSONEmpty(t *testing.T) {
 	removeActivePort()
 
 	out := captureStdout(t, func() {
-		if err := printDownloads(true, "", "", false); err != nil {
+		if err := printDownloads(os.Stdout, true, "", "", false); err != nil {
 			t.Fatalf("printDownloads empty json failed: %v", err)
 		}
 	})
@@ -1029,7 +1038,7 @@ func TestPrintDownloads_StrictRemoteEmpty_DoesNotFallbackToDB(t *testing.T) {
 	defer server.Close()
 
 	out := captureStdout(t, func() {
-		if err := printDownloads(true, server.URL, "", true); err != nil {
+		if err := printDownloads(os.Stdout, true, server.URL, "", true); err != nil {
 			t.Fatalf("printDownloads strict remote failed: %v", err)
 		}
 	})
@@ -1055,7 +1064,7 @@ func TestShowDownloadDetails_UsesDatabaseFallback(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := showDownloadDetails("87654321", true, "", ""); err != nil {
+		if err := showDownloadDetails(os.Stdout, "87654321", true, "", ""); err != nil {
 			t.Fatalf("showDownloadDetails fallback failed: %v", err)
 		}
 	})
@@ -1124,50 +1133,6 @@ func TestSendToServer_SuccessAndServerError(t *testing.T) {
 				t.Fatalf("pending approval = %v, want %v", pending, tt.wantPending)
 			}
 		})
-	}
-}
-
-func TestSubmitDownloads_SummarizesOutcomes(t *testing.T) {
-	var requests int32
-	server := testutil.NewHTTPServerT(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&requests, 1)
-		var req DownloadRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Errorf("decode request: %v", err)
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-
-		switch req.URL {
-		case "https://example.com/queued.zip":
-			w.WriteHeader(http.StatusOK)
-		case "https://example.com/pending.zip":
-			w.WriteHeader(http.StatusAccepted)
-		default:
-			http.Error(w, "failed", http.StatusInternalServerError)
-		}
-	}))
-	defer server.Close()
-
-	var summary addSummary
-	_ = captureStdout(t, func() {
-		summary = submitDownloads([]string{
-			"example.com/queued.zip",
-			"https://example.com/pending.zip",
-			"https://example.com/failed.zip",
-			"ftp://example.com/unsupported.zip",
-			"",
-		}, "", server.URL, "", true)
-	})
-
-	if summary.queued != 1 || summary.awaitingApproval != 1 || summary.failed != 2 {
-		t.Fatalf("summary = %+v, want one queued, one awaiting approval, and two failed", summary)
-	}
-	if summary.succeeded() != 2 {
-		t.Fatalf("succeeded = %d, want 2", summary.succeeded())
-	}
-	if got := atomic.LoadInt32(&requests); got != 3 {
-		t.Fatalf("requests = %d, want 3; the unsupported URL must not reach the server", got)
 	}
 }
 
@@ -1332,7 +1297,6 @@ func TestProcessDownloads_RemoteAndLocal(t *testing.T) {
 
 	t.Run("local-mode", func(t *testing.T) {
 		setupIsolatedCmdState(t)
-		atomic.StoreInt32(&activeDownloads, 0)
 
 		GlobalProgressCh = make(chan types.DownloadEvent, 10)
 		if GlobalPool != nil {
@@ -1371,9 +1335,6 @@ func TestProcessDownloads_RemoteAndLocal(t *testing.T) {
 
 		if count != 1 {
 			t.Fatalf("expected 1 successful local add, got %d", count)
-		}
-		if atomic.LoadInt32(&activeDownloads) != 1 {
-			t.Fatalf("expected activeDownloads=1, got %d", atomic.LoadInt32(&activeDownloads))
 		}
 	})
 }

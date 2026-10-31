@@ -132,6 +132,15 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 		finalFilename = filepath.Base(finalDestPath)
 		utils.Debug("Resuming download, using saved destPath: %s", finalDestPath)
 	}
+	// A cleanup failure or a crash can leave both published and working names
+	// pointing to one inode. Never open that working name for another transfer.
+	published, err := utils.SameFilePaths(finalDestPath, finalDestPath+types.IncompleteSuffix)
+	if err != nil {
+		return err
+	}
+	if published {
+		return types.ErrCompleted
+	}
 	utils.Debug("Destination path: %s", finalDestPath)
 
 	var progState *progress.DownloadProgress
@@ -152,7 +161,7 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 	if cfg.ProgressCh != nil {
 		rateLimit, rateLimitSet := currentRateLimit()
 		safeSendProgress(cfg.ProgressCh, types.DownloadEvent{
-			Type:         types.EventStarted,
+			Type: types.EventStarted, Artifact: cfg.Artifact,
 			DownloadID:   cfg.ID,
 			URL:          cfg.URL,
 			Filename:     finalFilename,
@@ -301,6 +310,36 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 
 	// Physical download success takes precedence over late-arriving pause signals.
 	if downloadErr == nil {
+		// The response length may be unknown or differ from the completed file.
+		// Completion is emitted before the lifecycle promotes the working file.
+		if info, err := os.Stat(finalDestPath + types.IncompleteSuffix); err == nil && info.Mode().IsRegular() {
+			effectiveTotalSize = info.Size()
+		} else if info, err := os.Stat(finalDestPath); err == nil && info.Mode().IsRegular() {
+			effectiveTotalSize = info.Size()
+		}
+		cfg.TotalSize = effectiveTotalSize
+		if cfg.Artifact.ExpectedSHA256 != "" {
+			if progState != nil {
+				progState.Verifying.Store(true)
+			}
+			cfg.Artifact.Verification = "verifying"
+			if cfg.ProgressCh != nil {
+				safeSendProgress(cfg.ProgressCh, types.DownloadEvent{Type: types.EventSystem, DownloadID: cfg.ID, Message: "Verifying SHA-256", Artifact: cfg.Artifact}, ctx.Done())
+			}
+			digest, err := hashArtifact(ctx, finalDestPath+types.IncompleteSuffix)
+			if progState != nil {
+				progState.Verifying.Store(false)
+			}
+			if err != nil {
+				return err
+			}
+			cfg.Artifact.SHA256 = digest
+			if digest != cfg.Artifact.ExpectedSHA256 {
+				cfg.Artifact.Verification = "mismatch"
+				return types.ErrIntegrityMismatch
+			}
+			cfg.Artifact.Verification = "verified"
+		}
 		var elapsed time.Duration
 		if progState != nil {
 			_, elapsed = progState.FinalizeSession(effectiveTotalSize)
@@ -319,7 +358,7 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 			rateLimit, rateLimitSet := currentRateLimit()
 			// EventComplete is terminal-reliable and must not be dropped due to canceled context.
 			safeSendProgress(cfg.ProgressCh, types.DownloadEvent{
-				Type:         types.EventComplete,
+				Type: types.EventComplete, Artifact: cfg.Artifact,
 				DownloadID:   cfg.ID,
 				Filename:     finalFilename,
 				Elapsed:      elapsed,

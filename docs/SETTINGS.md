@@ -2,6 +2,10 @@
 
 This document covers all configuration options available in Surge. For CLI commands and flags, see the [CLI reference](reference/cli.md).
 
+## Settings screen
+
+The TUI groups options into General, Downloads, Appearance, Network, Categories, Extension, and Advanced. Use the numbered tabs or left and right arrows to switch groups. The configuration file keeps its existing sections independently of these display groups. Deprecated `dial_hedge_count` is accepted for compatibility but is hidden from the settings screen.
+
 ## Configuration File
 
 You can **access the settings in TUI** or configure them via the CLI tool `surge config`. 
@@ -114,10 +118,19 @@ Surge follows OS conventions for storing its files. Below is a breakdown of ever
 | `auto_start`           | bool   | Install the current user's Surge service and start it with that user's login session. (See [Run Surge as a service](guides/run-as-a-service.md)). | `false` |
 | `skip_update_check`    | bool   | Disable automatic check for new versions on startup.                                               | `false` |
 | `clipboard_monitor`    | bool   | Watch the system clipboard for URLs and prompt to download them.                                   | `true`  |
+| `log_retention_count`  | int    | Number of recent log files to keep.                                                                | `5`     |
+
+### Appearance Settings
+
+These options are stored in the `[general]` section of the configuration file.
+
+| Key | Type | Description | Default |
+| :-- | :--- | :---------- | :------ |
 | `theme`                | int    | UI Theme (0=Adaptive, 1=Light, 2=Dark).                                                            | `0`     |
 | `theme_path`           | string | Path to a custom `.toml` color scheme or name of theme in the `themes` directory. See [THEMES.md](THEMES.md). | `""`    |
-| `log_retention_count`  | int    | Number of recent log files to keep.                                                                | `5`     |
+| `transparent_background` | bool | Use the terminal background throughout the TUI. Terminal transparency is configured in the terminal. | `false` |
 | `live_speed_graph`     | bool   | Use live speed for graph instead of EMA smoothed speed.                                            | `false` |
+| `show_speed_graph` | bool | Show the speed graph on the dashboard. | `true` |
 
 ### Connection Settings
 
@@ -151,3 +164,38 @@ Surge follows OS conventions for storing its files. Below is a breakdown of ever
 | Key                    | Type   | Description                                                                                              | Default |
 | :--------------------- | :----- | :------------------------------------------------------------------------------------------------------- | :------ |
 | `category_enabled`     | bool   | Enable automatic sorting of downloads into subfolders based on file type categories.                     | `false` |
+
+### Category priority
+
+Category rules are checked from top to bottom; the first matching rule determines the category and download path. In Settings → Categories, select a category and use Shift+Up / Shift+Down or Shift+K / Shift+J to change its priority. Save the order by closing Settings. Custom categories are added at the bottom and can be moved above broader rules.
+
+### Settings shortcuts and confirmations
+
+- `r` resets the selected setting after confirmation. It does not delete category rules.
+- `Shift+R` resets all settings and category rules to defaults after confirmation. Custom keybindings are kept.
+- `d` deletes the selected category rule after confirmation. Existing downloads and files are kept.
+
+These dialogs initially select **Cancel**. Changes remain staged in Settings until you save and close it.
+
+Category rows show their own shortcut help. Left/right tab switching is inactive while the category list is focused; use `1`–`7` to switch settings tabs. In a category editor, Tab/Down and Shift+Tab/Up move between fields. The `Reset`, `ResetAll`, and `DeleteCategory` bindings can be customized in the `settings` section of the keymap.
+
+### Assigning a download category
+
+The dashboard category picker saves an explicit assignment with the download,
+including **Uncategorized**. Assignments survive restarts and are shared with
+clients connected to the daemon.
+
+After selecting a category, choose **Move file** or **Keep location**. Escape
+returns to the picker without changing the assignment. The dialog shows the
+category folder; Uncategorized uses the default download directory.
+
+Completed files move immediately. Queued, downloading, paused, and failed
+downloads keep their working files and resume data where they are; an approved
+move happens after successful completion. Pending moves survive restarts.
+Choosing Keep location cancels an earlier pending move.
+While a file is moving, its status shows **Moving** and changes to that download
+are temporarily disabled. Other downloads remain usable.
+
+Existing destination files are never overwritten. If a deferred move fails, the
+download remains completed at its original location and the activity log reports
+the failure. Select the category again to retry the move.

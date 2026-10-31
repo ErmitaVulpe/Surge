@@ -16,6 +16,24 @@
         cfg = config.programs.surge;
         toml = pkgs.formats.toml { };
         json = pkgs.formats.json { };
+        nativeDarwin = pkgs.stdenv.hostPlatform.isDarwin && !config.xdg.enable;
+        configDir =
+          if nativeDarwin then
+            "${config.home.homeDirectory}/Library/Application Support/surge"
+          else
+            "${config.xdg.configHome}/surge";
+        stateDir =
+          if nativeDarwin then
+            "${config.home.homeDirectory}/Library/Application Support/surge"
+          else
+            "${config.xdg.stateHome}/surge";
+        serverArgs = [
+          (lib.getExe cfg.package)
+          "server"
+          "start"
+          "--managed-service"
+        ]
+        ++ cfg.headless.extraArgs;
       in
       {
         options.programs.surge = {
@@ -29,7 +47,7 @@
 
           settings = lib.mkOption {
             type = lib.types.nullOr toml.type;
-            description = "Configuration for Surge, as defined in https://github.com/SurgeDM/Surge/blob/main/docs/SETTINGS.md";
+            description = "Declarative settings for Surge (https://github.com/SurgeDM/Surge/blob/main/docs/SETTINGS.md). When set, these replace runtime edits on each Home Manager activation.";
             default = null;
             example = {
               general = {
@@ -50,7 +68,7 @@
 
           keymap = lib.mkOption {
             type = lib.types.nullOr json.type;
-            description = "Keymap configuration for Surge";
+            description = "Declarative keymap for Surge. When set, this replaces runtime edits on each Home Manager activation.";
             default = null;
             example = {
               dashboard = {
@@ -77,7 +95,7 @@
 
             tokenFile = lib.mkOption {
               type = lib.types.nullOr lib.types.str;
-              description = "Path to a file with the api token for the server. If null, will use an auto-generated. To see what it is, run `surge token`";
+              description = "Absolute path to a protected runtime file containing the API token (for example from sops-nix). Its contents are never copied into the Nix store. If null, Surge uses its persisted or auto-generated token; run `surge token` to view it.";
               default = null;
             };
 
@@ -94,30 +112,70 @@
             {
               home.packages = [ cfg.package ];
 
-              xdg.configFile = {
-                "surge/settings.toml" = lib.mkIf (!isNull cfg.settings) {
+              home.file = {
+                "${configDir}/settings.toml" = lib.mkIf (!isNull cfg.settings) {
                   source = toml.generate "settings.toml" cfg.settings;
+                  # Surge saves settings by replacing this symlink.
+                  force = true;
                 };
-                "surge/keymap.json" = lib.mkIf (!isNull cfg.keymap) {
+                "${configDir}/keymap.json" = lib.mkIf (!isNull cfg.keymap) {
                   source = json.generate "keymap.json" cfg.keymap;
                   force = true;
                 };
               };
             }
             (lib.mkIf cfg.headless.enable {
-              home.services.surge = {
-                imports = [ cfg.package.services.default ];
-                surge = {
-                  inherit (cfg) package;
-                  inherit (cfg.headless) extraArgs;
-                };
-              };
-              systemd.user.services.surge.Unit.X-Restart-Triggers = [
-                config.xdg.configFile."surge/settings.toml".source
+              assertions = [
+                {
+                  assertion = cfg.headless.tokenFile == null || lib.hasPrefix "/" cfg.headless.tokenFile;
+                  message = "programs.surge.headless.tokenFile must be an absolute runtime path.";
+                }
               ];
-              xdg.stateFile."surge/token" = lib.mkIf (!isNull cfg.headless.tokenFile) {
-                force = true; # If tokenFile was unspecified, server creates its own file
+              home.file."${stateDir}/token" = lib.mkIf (!isNull cfg.headless.tokenFile) {
+                force = true;
                 source = config.lib.file.mkOutOfStoreSymlink cfg.headless.tokenFile;
+              };
+              systemd.user.services.surge = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
+                Unit = {
+                  Description = "Surge downloader headless server";
+                  After = [ "network-online.target" ];
+                  Wants = [ "network-online.target" ];
+                  X-Restart-Triggers = lib.mkIf (!isNull cfg.settings) [
+                    config.home.file."${configDir}/settings.toml".source
+                  ];
+                };
+                Service = {
+                  ExecStart = lib.replaceStrings [ "%" "$" ] [ "%%" "$$" ] (lib.escapeShellArgs serverArgs);
+                  Environment = [
+                    "XDG_CONFIG_HOME=${config.xdg.configHome}"
+                    "XDG_STATE_HOME=${config.xdg.stateHome}"
+                  ];
+                  WorkingDirectory = config.home.homeDirectory;
+                  Restart = "on-failure";
+                  NoNewPrivileges = true;
+                  PrivateTmp = true;
+                };
+                Install.WantedBy = [ "default.target" ];
+              };
+              launchd.agents.surge = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+                enable = true;
+                config = {
+                  ProgramArguments = serverArgs;
+                  RunAtLoad = true;
+                  KeepAlive = {
+                    SuccessfulExit = false;
+                  };
+                  WorkingDirectory = config.home.homeDirectory;
+                  EnvironmentVariables =
+                    (lib.optionalAttrs config.xdg.enable {
+                      XDG_CONFIG_HOME = config.xdg.configHome;
+                      XDG_STATE_HOME = config.xdg.stateHome;
+                    })
+                    // (lib.optionalAttrs (!isNull cfg.settings) {
+                      # Changing the plist makes Home Manager reload the agent.
+                      SURGE_SETTINGS_SOURCE = toString config.home.file."${configDir}/settings.toml".source;
+                    });
+                };
               };
             })
           ]

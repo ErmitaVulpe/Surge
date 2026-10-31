@@ -65,7 +65,7 @@ Surge is available on multiple platforms. Choose the method that works best for 
 | **Linux AppImage**           | [Download from Releases](https://github.com/SurgeDM/Surge/releases/latest) | Run `chmod +x Surge_..._linux_x86_64.AppImage`, then `./Surge_..._linux_x86_64.AppImage`. Supports delta updates. |
 | **Arch Linux (AUR)**         | `yay -S surge`                                                                 | Managed via AUR.                             |
 | **macOS / Linux (Homebrew)** | `brew install SurgeDM/tap/surge`                                      | Recommended for Mac/Linux users.             |
-| **Nix / NixOS**              | `nix run nixpkgs#surge-downloader`                                        | Via nixpkgs, or NixOS config: `inputs.surge.packages.${pkgs.system}.default` |
+| **Nix / NixOS**              | `nix profile install --refresh github:SurgeDM/Surge`                   | Installs the official release and adds `surge` to your Nix profile. [Nix instructions](docs/getting-started.md#nix-installation-and-updates). |
 | **Windows**         | `winget install surge-downloader.surge`<br />or<br />`scoop install surge`<br />or<br />`choco install surge` | Recommended for Windows users.               |
 | **Dockerfile**               | [See instructions](#4-server-mode-with-docker-compose)                              | Run Surge in server mode with Docker Compose |
 | **Go Install**               | `go install github.com/SurgeDM/Surge@latest`                          | Requires Go 1.25+                           |
@@ -97,6 +97,8 @@ surge https://example.com/file.zip --batch urls.txt
 ```
 
 `--no-server` keeps the TUI fully local and skips the embedded HTTP API. CLI control commands such as `surge add`, `surge pause`, and browser-extension requests will not be able to target that instance.
+
+The **All** tab (`0`) shows downloads in every state. The existing Queued (`q`), Active (`w`), and Done (`e`) tabs keep their filters. Tab/Shift+Tab cycle through all four tabs, and search, category filters, and tab pinning work in All too.
 
 ### 2. Server Mode (Headless)
 
@@ -296,6 +298,8 @@ Huge thanks to the teams and sponsors helping us build and ship Surge:
 
 We love community contributions! Whether it's a bug fix, a new feature, or just cleaning up typos.
 PRs are always welcome. For a quick guide, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For internal TUI visual checks, run `./scripts/visual-test.sh`. The fixture uses the production TUI and is compiled only into a temporary test binary. See [Visual testing](docs/development/visual-testing.md).
 
 You can check out the [Discussions](https://github.com/SurgeDM/Surge/discussions) for any questions or ideas, or follow us on [X (Twitter)](https://x.com/SurgeDownloader)!
 

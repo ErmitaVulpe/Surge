@@ -6,12 +6,33 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/SurgeDM/Surge/internal/utils"
 )
+
+func TestSettingsLabelsUseSentenceCase(t *testing.T) {
+	words := regexp.MustCompile(`[A-Za-z]+`)
+	allowed := map[string]bool{"URL": true, "DNS": true, "EMA": true, "Chrome": true, "Firefox": true}
+	for category, settings := range GetSettingsMetadata() {
+		for _, setting := range settings {
+			parts := words.FindAllString(setting.Label, -1)
+			if len(parts) == 0 || !unicode.IsUpper(rune(parts[0][0])) {
+				t.Errorf("%s/%s: label %q should start with a capital letter", category, setting.Key, setting.Label)
+				continue
+			}
+			for _, word := range parts[1:] {
+				if unicode.IsUpper(rune(word[0])) && !allowed[word] {
+					t.Errorf("%s/%s: label %q has unexpected capitalized word %q", category, setting.Key, setting.Label, word)
+				}
+			}
+		}
+	}
+}
 
 func TestDefaultSettings(t *testing.T) {
 	settings := DefaultSettings()
@@ -235,30 +256,33 @@ func TestEveryValidatorIsInCategoriesList(t *testing.T) {
 	}
 }
 
-func TestCategoriesListMatchesCategoryOrder(t *testing.T) {
+func TestDisplayCategoriesCoverSettings(t *testing.T) {
 	settings := DefaultSettings()
-	order := CategoryOrder()
-
-	// 1. Verify every category in CategoriesList is present in CategoryOrder
-	orderMap := make(map[string]bool)
-	for _, name := range order {
-		orderMap[name] = true
-	}
-	for _, cat := range settings.CategoriesList {
-		if !orderMap[cat.Name] {
-			t.Errorf("Category %q is in CategoriesList but missing from CategoryOrder()", cat.Name)
+	seen := map[string]bool{}
+	for _, category := range CategoryOrder() {
+		entries := GetSettingsMetadata()[category]
+		if len(entries) == 0 {
+			t.Errorf("display category %s is empty", category)
+		}
+		for _, entry := range entries {
+			if seen[entry.Key] {
+				t.Errorf("setting %s appears more than once", entry.Key)
+			}
+			seen[entry.Key] = true
+			if settings.FindSetting(category, entry.Key) == nil {
+				t.Errorf("cannot find %s in %s", entry.Key, category)
+			}
 		}
 	}
-
-	// 2. Verify every category in CategoryOrder is present in CategoriesList
-	listMap := make(map[string]bool)
-	for _, cat := range settings.CategoriesList {
-		listMap[cat.Name] = true
-	}
-	for _, name := range order {
-		if !listMap[name] {
-			t.Errorf("Category %q is in CategoryOrder() but missing from CategoriesList", name)
+	for _, category := range settings.CategoriesList {
+		for _, setting := range category.Settings {
+			if setting.Key != "dial_hedge_count" && !seen[setting.Key] {
+				t.Errorf("setting %s is missing from display", setting.Key)
+			}
 		}
+	}
+	if seen["dial_hedge_count"] {
+		t.Error("deprecated dial hedge count is visible")
 	}
 }
 
@@ -433,6 +457,8 @@ func TestSaveSettings_RealFunction(t *testing.T) {
 	original := DefaultSettings()
 	original.Network.MaxConnectionsPerDownload.Value = 48
 	original.General.AutoResume.Value = true
+	original.General.Theme.Value = ThemeDark
+	original.General.TransparentBackground.Value = true
 
 	err := SaveSettings(original)
 	if err != nil {
@@ -449,6 +475,12 @@ func TestSaveSettings_RealFunction(t *testing.T) {
 	}
 	if !Resolve[bool](loaded.General.AutoResume) {
 		t.Error("AutoResume should be true")
+	}
+	if Resolve[int](loaded.General.Theme) != ThemeDark || !Resolve[bool](loaded.General.TransparentBackground) {
+		t.Error("appearance settings did not survive save and load")
+	}
+	if loaded.FindSetting("Appearance", "theme") != loaded.FindSetting("General", "theme") {
+		t.Error("legacy general lookup must address the appearance setting")
 	}
 }
 

@@ -50,6 +50,7 @@ type GeneralSettings struct {
 	ClipboardMonitor             *Setting `json:"clipboard_monitor"`
 	Theme                        *Setting `json:"theme"`
 	ThemePath                    *Setting `json:"theme_path"`
+	TransparentBackground        *Setting `json:"transparent_background"`
 	LogRetentionCount            *Setting `json:"log_retention_count"`
 	LiveSpeedGraph               *Setting `json:"live_speed_graph"`
 	ShowSpeedGraph               *Setting `json:"show_speed_graph"`
@@ -256,83 +257,89 @@ func (s *Setting) Resolve() any {
 
 func (s *Settings) initializeCategoriesList() {
 	s.CategoriesList = []*SettingsCategory{
-		{
-			Name: "General",
-			Settings: []*Setting{
-				s.General.DefaultDownloadDir,
-				s.General.WarnOnDuplicate,
-				s.General.DownloadCompleteNotification,
-				s.General.AutoShutdownAfterDownloads,
-				s.General.AllowRemoteOpenActions,
-				s.General.AutoResume,
-				s.General.AutoStart,
-				s.General.SkipUpdateCheck,
-				s.General.ClipboardMonitor,
-				s.General.Theme,
-				s.General.ThemePath,
-				s.General.LogRetentionCount,
-				s.General.LiveSpeedGraph,
-				s.General.ShowSpeedGraph,
-			},
-		},
-		{
-			Name: "Network",
-			Settings: []*Setting{
-				s.Network.MaxConnectionsPerDownload,
-				s.Network.MaxConcurrentDownloads,
-				s.Network.MaxConcurrentProbes,
-				s.Network.UserAgent,
-				s.Network.ProxyURL,
-				s.Network.CustomDNS,
-				s.Network.SequentialDownload,
-				s.Network.MinChunkSize,
-				s.Network.WorkerBufferSize,
-				s.Network.DialHedgeCount,
-				s.Network.GlobalRateLimit,
-				s.Network.DefaultDownloadRateLimit,
-			},
-		},
-
-		{
-			Name: "Performance",
-			Settings: []*Setting{
-				s.Performance.MaxTaskRetries,
-				s.Performance.SlowWorkerThreshold,
-				s.Performance.SlowWorkerGracePeriod,
-				s.Performance.StallTimeout,
-				s.Performance.SpeedEmaAlpha,
-				s.Performance.AdaptiveConcurrencyInterval,
-			},
-		},
-		{
-			Name: "Categories",
-			Settings: []*Setting{
-				s.Categories.CategoryEnabled,
-			},
-		},
-		{
-			Name: "Extension",
-			Settings: []*Setting{
-				s.Extension.ExtensionPrompt,
-				s.Extension.ChromeExtensionURL,
-				s.Extension.FirefoxExtensionURL,
-				s.Extension.AuthToken,
-				s.Extension.InstructionsURL,
-			},
-		},
+		{Name: "General", Settings: []*Setting{
+			s.General.DefaultDownloadDir,
+			s.General.WarnOnDuplicate,
+			s.General.DownloadCompleteNotification,
+			s.General.AutoShutdownAfterDownloads,
+			s.General.AllowRemoteOpenActions,
+			s.General.AutoResume,
+			s.General.AutoStart,
+			s.General.SkipUpdateCheck,
+			s.General.ClipboardMonitor,
+			s.General.Theme,
+			s.General.ThemePath,
+			s.General.TransparentBackground,
+			s.General.LogRetentionCount,
+			s.General.LiveSpeedGraph,
+			s.General.ShowSpeedGraph,
+		}},
+		{Name: "Network", Settings: []*Setting{
+			s.Network.MaxConnectionsPerDownload,
+			s.Network.MaxConcurrentDownloads,
+			s.Network.MaxConcurrentProbes,
+			s.Network.UserAgent,
+			s.Network.ProxyURL,
+			s.Network.CustomDNS,
+			s.Network.SequentialDownload,
+			s.Network.MinChunkSize,
+			s.Network.WorkerBufferSize,
+			s.Network.DialHedgeCount,
+			s.Network.GlobalRateLimit,
+			s.Network.DefaultDownloadRateLimit,
+		}},
+		{Name: "Performance", Settings: []*Setting{
+			s.Performance.MaxTaskRetries,
+			s.Performance.SlowWorkerThreshold,
+			s.Performance.SlowWorkerGracePeriod,
+			s.Performance.StallTimeout,
+			s.Performance.SpeedEmaAlpha,
+			s.Performance.AdaptiveConcurrencyInterval,
+		}},
+		{Name: "Categories", Settings: []*Setting{
+			s.Categories.CategoryEnabled,
+		}},
+		{Name: "Extension", Settings: []*Setting{
+			s.Extension.ExtensionPrompt,
+			s.Extension.ChromeExtensionURL,
+			s.Extension.FirefoxExtensionURL,
+			s.Extension.AuthToken,
+			s.Extension.InstructionsURL,
+		}},
 	}
+}
+
+// settingsDisplayGroups is independent of the stable config and API sections.
+var settingsDisplayGroups = map[string][]string{
+	"General":    {"auto_start", "auto_resume", "auto_shutdown_after_downloads", "clipboard_monitor", "download_complete_notification", "skip_update_check"},
+	"Downloads":  {"default_download_dir", "warn_on_duplicate", "max_concurrent_downloads", "max_connections_per_host", "global_rate_limit", "default_download_rate_limit", "sequential_download"},
+	"Appearance": {"theme", "theme_path", "transparent_background", "show_speed_graph", "live_speed_graph"},
+	"Network":    {"proxy_url", "custom_dns", "user_agent", "allow_remote_open_actions"},
+	"Categories": {"category_enabled"},
+	"Extension":  {"extension_prompt", "auth_token", "chrome_extension_url", "firefox_extension_url", "instructions_url"},
+	"Advanced":   {"max_concurrent_probes", "min_chunk_size", "worker_buffer_size", "max_task_retries", "slow_worker_threshold", "slow_worker_grace_period", "stall_timeout", "speed_ema_alpha", "adaptive_concurrency_interval", "log_retention_count"},
 }
 
 // FindSetting returns a setting by its category and JSON key without using reflection.
 func (s *Settings) FindSetting(categoryName, key string) *Setting {
-	for _, cat := range s.CategoriesList {
-		if cat.Name == categoryName {
+	// A display category can contain settings from several storage sections.
+	if keys, ok := settingsDisplayGroups[categoryName]; ok && slices.Contains(keys, key) {
+		for _, cat := range s.CategoriesList {
 			for _, set := range cat.Settings {
-				if set.Key == key {
+				if set != nil && set.Key == key {
 					return set
 				}
 			}
-			return nil
+		}
+	}
+	// Preserve direct lookups using existing config and API section names.
+	for _, cat := range s.CategoriesList {
+		if cat.Name == categoryName {
+			for _, set := range cat.Settings {
+				if set != nil && set.Key == key {
+					return set
+				}
+			}
 		}
 	}
 	return nil
@@ -468,19 +475,14 @@ func GetSettingsMetadata() map[string][]SettingMeta {
 	settingsMetadataOnce.Do(func() {
 		s := DefaultSettings()
 		cachedSettingsMetadata = make(map[string][]SettingMeta)
-		for _, cat := range s.CategoriesList {
-			list := make([]SettingMeta, 0, len(cat.Settings))
-			for _, set := range cat.Settings {
-				list = append(list, SettingMeta{
-					Key:             set.Key,
-					Label:           set.Label,
-					Description:     set.Description,
-					Type:            set.Type,
-					Unit:            set.Unit,
-					RequiresRestart: set.NeedsRestart,
+		for _, category := range CategoryOrder() {
+			for _, key := range settingsDisplayGroups[category] {
+				set := s.FindSetting(category, key)
+				cachedSettingsMetadata[category] = append(cachedSettingsMetadata[category], SettingMeta{
+					Key: set.Key, Label: set.Label, Description: set.Description,
+					Type: set.Type, Unit: set.Unit, RequiresRestart: set.NeedsRestart,
 				})
 			}
-			cachedSettingsMetadata[cat.Name] = list
 		}
 	})
 	return cachedSettingsMetadata
@@ -488,13 +490,7 @@ func GetSettingsMetadata() map[string][]SettingMeta {
 
 // CategoryOrder returns the display order of settings categories.
 func CategoryOrder() []string {
-	return []string{
-		"General",
-		"Network",
-		"Performance",
-		"Categories",
-		"Extension",
-	}
+	return []string{"General", "Downloads", "Appearance", "Network", "Categories", "Extension", "Advanced"}
 }
 
 const (
@@ -524,7 +520,7 @@ func DefaultSettings() *Settings {
 		General: GeneralSettings{
 			DefaultDownloadDir: &Setting{
 				Key:          "default_download_dir",
-				Label:        "Default Download Dir",
+				Label:        "Default download dir",
 				Description:  "Default directory for new downloads. Leave empty to use current directory.",
 				Type:         TypeString,
 				DefaultValue: defaultDir,
@@ -547,7 +543,7 @@ func DefaultSettings() *Settings {
 			},
 			WarnOnDuplicate: &Setting{
 				Key:          "warn_on_duplicate",
-				Label:        "Warn on Duplicate",
+				Label:        "Warn on duplicate",
 				Description:  "Show warning when adding a download that already exists.",
 				Type:         TypeBool,
 				DefaultValue: true,
@@ -555,7 +551,7 @@ func DefaultSettings() *Settings {
 			},
 			DownloadCompleteNotification: &Setting{
 				Key:          "download_complete_notification",
-				Label:        "Download Complete Notification",
+				Label:        "Download notifications",
 				Description:  "Show system notification when a download finishes.",
 				Type:         TypeBool,
 				DefaultValue: true,
@@ -563,7 +559,7 @@ func DefaultSettings() *Settings {
 			},
 			AutoShutdownAfterDownloads: &Setting{
 				Key:          "auto_shutdown_after_downloads",
-				Label:        "Auto Shutdown",
+				Label:        "Auto shutdown",
 				Description:  "Shut down the computer after all downloads finish. Active, queued, and paused downloads block shutdown.",
 				Type:         TypeBool,
 				DefaultValue: false,
@@ -571,7 +567,7 @@ func DefaultSettings() *Settings {
 			},
 			AllowRemoteOpenActions: &Setting{
 				Key:          "allow_remote_open_actions",
-				Label:        "Allow Remote Open Actions",
+				Label:        "Remote open actions",
 				Description:  "Allow /open-file and /open-folder API calls from non-loopback clients. Disabled by default for security.",
 				Type:         TypeBool,
 				NeedsRestart: true,
@@ -580,7 +576,7 @@ func DefaultSettings() *Settings {
 			},
 			AutoResume: &Setting{
 				Key:          "auto_resume",
-				Label:        "Auto Resume",
+				Label:        "Auto resume",
 				Description:  "Automatically resume paused downloads on startup.",
 				Type:         TypeBool,
 				NeedsRestart: true,
@@ -589,7 +585,7 @@ func DefaultSettings() *Settings {
 			},
 			AutoStart: &Setting{
 				Key:          "auto_start",
-				Label:        "Start at Login",
+				Label:        "Start at login",
 				Description:  "Install the Surge user service and start it automatically when you log in.",
 				Type:         TypeBool,
 				DefaultValue: false,
@@ -597,7 +593,7 @@ func DefaultSettings() *Settings {
 			},
 			SkipUpdateCheck: &Setting{
 				Key:          "skip_update_check",
-				Label:        "Skip Update Check",
+				Label:        "Skip update check",
 				Description:  "Disable automatic check for new versions on startup.",
 				Type:         TypeBool,
 				NeedsRestart: true,
@@ -606,7 +602,7 @@ func DefaultSettings() *Settings {
 			},
 			ClipboardMonitor: &Setting{
 				Key:          "clipboard_monitor",
-				Label:        "Clipboard Monitor",
+				Label:        "Clipboard monitor",
 				Description:  "Watch clipboard for URLs and prompt to download them.",
 				Type:         TypeBool,
 				NeedsRestart: true,
@@ -615,7 +611,7 @@ func DefaultSettings() *Settings {
 			},
 			Theme: &Setting{
 				Key:          "theme",
-				Label:        "App Theme",
+				Label:        "App theme",
 				Description:  "UI Theme (System, Light, Dark).",
 				Type:         TypeInt,
 				DefaultValue: ThemeAdaptive,
@@ -633,15 +629,23 @@ func DefaultSettings() *Settings {
 			},
 			ThemePath: &Setting{
 				Key:          "theme_path",
-				Label:        "Theme File",
+				Label:        "Theme file",
 				Description:  "Path to a custom .toml color scheme.",
 				Type:         TypeString,
 				DefaultValue: "",
 				Value:        "",
 			},
+			TransparentBackground: &Setting{
+				Key:          "transparent_background",
+				Label:        "Transparent background",
+				Description:  "Use the terminal background throughout the UI.",
+				Type:         TypeBool,
+				DefaultValue: false,
+				Value:        false,
+			},
 			LogRetentionCount: &Setting{
 				Key:          "log_retention_count",
-				Label:        "Log Retention Count",
+				Label:        "Log retention count",
 				Description:  "Number of recent log files to keep.",
 				Type:         TypeInt,
 				NeedsRestart: true,
@@ -660,7 +664,7 @@ func DefaultSettings() *Settings {
 			},
 			LiveSpeedGraph: &Setting{
 				Key:          "live_speed_graph",
-				Label:        "Live Speed Graph",
+				Label:        "Live speed graph",
 				Description:  "Use live speed for graph instead of EMA smoothed speed.",
 				Type:         TypeBool,
 				DefaultValue: false,
@@ -668,7 +672,7 @@ func DefaultSettings() *Settings {
 			},
 			ShowSpeedGraph: &Setting{
 				Key:          "show_speed_graph",
-				Label:        "Show Speed Graph",
+				Label:        "Show speed graph",
 				Description:  "Display the network activity graph on the dashboard. Disable to reduce CPU usage.",
 				Type:         TypeBool,
 				DefaultValue: true,
@@ -678,7 +682,7 @@ func DefaultSettings() *Settings {
 		Network: NetworkSettings{
 			MaxConnectionsPerDownload: &Setting{
 				Key:          "max_connections_per_host",
-				Label:        "Max Connections/Download",
+				Label:        "Max connections/download",
 				Description:  "Maximum concurrent connections per download (1-64).",
 				Type:         TypeInt,
 				DefaultValue: types.PerDownloadMax,
@@ -696,7 +700,7 @@ func DefaultSettings() *Settings {
 			},
 			MaxConcurrentDownloads: &Setting{
 				Key:          "max_concurrent_downloads",
-				Label:        "Max Concurrent Downloads",
+				Label:        "Max concurrent downloads",
 				Description:  "Maximum number of downloads running at once (1-10).",
 				Type:         TypeInt,
 				NeedsRestart: true,
@@ -715,7 +719,7 @@ func DefaultSettings() *Settings {
 			},
 			MaxConcurrentProbes: &Setting{
 				Key:          "max_concurrent_probes",
-				Label:        "Max Concurrent Probes",
+				Label:        "Max concurrent probes",
 				Description:  "Maximum number of simultaneous server probes when adding many downloads at once (1-10).",
 				Type:         TypeInt,
 				NeedsRestart: true,
@@ -734,7 +738,7 @@ func DefaultSettings() *Settings {
 			},
 			UserAgent: &Setting{
 				Key:          "user_agent",
-				Label:        "User Agent",
+				Label:        "User agent",
 				Description:  "Custom User-Agent string for HTTP requests. Leave empty for default.",
 				Type:         TypeString,
 				DefaultValue: "",
@@ -763,7 +767,7 @@ func DefaultSettings() *Settings {
 			},
 			CustomDNS: &Setting{
 				Key:          "custom_dns",
-				Label:        "Custom DNS Server",
+				Label:        "Custom DNS server",
 				Description:  "Set custom DNS (e.g., 1.1.1.1:53, 94.140.14.14:53). Leave empty for system.",
 				Type:         TypeString,
 				DefaultValue: "",
@@ -778,7 +782,7 @@ func DefaultSettings() *Settings {
 			},
 			SequentialDownload: &Setting{
 				Key:          "sequential_download",
-				Label:        "Sequential Download",
+				Label:        "Sequential download",
 				Description:  "Download pieces in order (Streaming Mode). May be slower.",
 				Type:         TypeBool,
 				DefaultValue: false,
@@ -786,7 +790,7 @@ func DefaultSettings() *Settings {
 			},
 			MinChunkSize: &Setting{
 				Key:          "min_chunk_size",
-				Label:        "Min Chunk Size",
+				Label:        "Min chunk size",
 				Description:  "Minimum download chunk size in MiB (e.g., 2).",
 				Type:         TypeInt64,
 				Unit:         UnitMegabytes,
@@ -806,7 +810,7 @@ func DefaultSettings() *Settings {
 			},
 			WorkerBufferSize: &Setting{
 				Key:          "worker_buffer_size",
-				Label:        "Worker Buffer Size",
+				Label:        "Worker buffer size",
 				Description:  "I/O buffer size per worker in KiB (e.g., 512).",
 				Type:         TypeInt,
 				Unit:         UnitKilobytes,
@@ -825,7 +829,7 @@ func DefaultSettings() *Settings {
 			},
 			DialHedgeCount: &Setting{
 				Key:          "dial_hedge_count",
-				Label:        "Dial Hedge Count",
+				Label:        "Dial hedge count",
 				Description:  "Deprecated and ignored; connection prewarming is no longer performed.",
 				Type:         TypeInt,
 				Unit:         UnitConnections,
@@ -844,8 +848,8 @@ func DefaultSettings() *Settings {
 			},
 			GlobalRateLimit: &Setting{
 				Key:          "global_rate_limit",
-				Label:        "Global Rate Limit",
-				Description:  "Cap total download bandwidth (e.g., 10MB/s, 80Mbps). Use 0 to disable.",
+				Label:        "Global rate limit",
+				Description:  "Cap total download bandwidth (e.g., 10MiB/s, 80Mbps). Use 0 to disable.",
 				Type:         TypeString,
 				Unit:         UnitMegabytesPerSecond,
 				DefaultValue: "0",
@@ -857,8 +861,8 @@ func DefaultSettings() *Settings {
 			},
 			DefaultDownloadRateLimit: &Setting{
 				Key:          "default_download_rate_limit",
-				Label:        "Default Download Rate Limit",
-				Description:  "Default cap per download (e.g., 2MB/s). Use 0 to disable.",
+				Label:        "Default download rate limit",
+				Description:  "Default cap per download (e.g., 2MiB/s). Use 0 to disable.",
 				Type:         TypeString,
 				Unit:         UnitMegabytesPerSecond,
 				DefaultValue: "0",
@@ -872,7 +876,7 @@ func DefaultSettings() *Settings {
 		Performance: PerformanceSettings{
 			MaxTaskRetries: &Setting{
 				Key:          "max_task_retries",
-				Label:        "Max Task Retries",
+				Label:        "Max task retries",
 				Description:  "Number of times to retry a failed chunk before giving up.",
 				Type:         TypeInt,
 				Unit:         UnitRetries,
@@ -891,7 +895,7 @@ func DefaultSettings() *Settings {
 			},
 			SlowWorkerThreshold: &Setting{
 				Key:          "slow_worker_threshold",
-				Label:        "Slow Worker Threshold",
+				Label:        "Slow worker threshold",
 				Description:  "Restart workers slower than this fraction of mean speed (0.0-1.0, 0 disables relative slow-worker checks).",
 				Type:         TypeFloat64,
 				Unit:         UnitRatio,
@@ -917,7 +921,7 @@ func DefaultSettings() *Settings {
 			},
 			SlowWorkerGracePeriod: &Setting{
 				Key:          "slow_worker_grace_period",
-				Label:        "Slow Worker Grace",
+				Label:        "Slow worker grace",
 				Description:  "Grace period before checking worker speed (e.g., 5s, 0 checks immediately).",
 				Type:         TypeDuration,
 				Unit:         UnitSeconds,
@@ -943,7 +947,7 @@ func DefaultSettings() *Settings {
 			},
 			StallTimeout: &Setting{
 				Key:          "stall_timeout",
-				Label:        "Stall Timeout",
+				Label:        "Stall timeout",
 				Description:  "Restart workers with no data for this duration (e.g., 5s, 0 disables stall detection).",
 				Type:         TypeDuration,
 				Unit:         UnitSeconds,
@@ -969,7 +973,7 @@ func DefaultSettings() *Settings {
 			},
 			SpeedEmaAlpha: &Setting{
 				Key:          "speed_ema_alpha",
-				Label:        "Speed EMA Alpha",
+				Label:        "Speed EMA alpha",
 				Description:  "Exponential moving average smoothing factor (0.0-1.0, 0 disables smoothing).",
 				Type:         TypeFloat64,
 				Unit:         UnitRatio,
@@ -995,7 +999,7 @@ func DefaultSettings() *Settings {
 			},
 			AdaptiveConcurrencyInterval: &Setting{
 				Key:          "adaptive_concurrency_interval",
-				Label:        "Adaptive Concurrency Interval",
+				Label:        "Adaptive concurrency interval",
 				Description:  "Halve connections when throttled, add one connection per interval, and split small tail ranges among idle workers on healthy hosts; 0 disables adaptation (0s or 1s-60s).",
 				Type:         TypeDuration,
 				Unit:         UnitSeconds,
@@ -1023,8 +1027,8 @@ func DefaultSettings() *Settings {
 		Categories: CategorySettings{
 			CategoryEnabled: &Setting{
 				Key:          "category_enabled",
-				Label:        "Manage Categories",
-				Description:  "Sort downloads into subfolders by file type. Press Enter to open Category Manager.",
+				Label:        "Manage categories",
+				Description:  "Sort downloads into subfolders using category rules.",
 				Type:         TypeBool,
 				DefaultValue: false,
 				Value:        false,
@@ -1034,7 +1038,7 @@ func DefaultSettings() *Settings {
 		Extension: ExtensionSettings{
 			ExtensionPrompt: &Setting{
 				Key:          "extension_prompt",
-				Label:        "Extension Prompt",
+				Label:        "Extension prompt",
 				Description:  "Prompt for confirmation when adding downloads via browser extension.",
 				Type:         TypeBool,
 				DefaultValue: true,
@@ -1042,7 +1046,7 @@ func DefaultSettings() *Settings {
 			},
 			ChromeExtensionURL: &Setting{
 				Key:          "chrome_extension_url",
-				Label:        "Get Chrome Extension",
+				Label:        "Get Chrome extension",
 				Description:  "Open the Surge Chrome extension page.",
 				Type:         TypeLink,
 				DefaultValue: "https://chromewebstore.google.com/detail/surge-download-manager/cakjmkhlofkhjmfkjlclgbfdklhdnkgl",
@@ -1050,7 +1054,7 @@ func DefaultSettings() *Settings {
 			},
 			FirefoxExtensionURL: &Setting{
 				Key:          "firefox_extension_url",
-				Label:        "Get Firefox Extension",
+				Label:        "Get Firefox extension",
 				Description:  "Open the Surge Firefox extension page.",
 				Type:         TypeLink,
 				DefaultValue: "https://addons.mozilla.org/en-US/firefox/addon/surge/",
@@ -1058,7 +1062,7 @@ func DefaultSettings() *Settings {
 			},
 			AuthToken: &Setting{
 				Key:          "auth_token",
-				Label:        "Auth Token",
+				Label:        "Auth token",
 				Description:  "Your authentication token. Use this to connect the Browser Extension to Surge.",
 				Type:         TypeAuthToken,
 				DefaultValue: "",
@@ -1066,7 +1070,7 @@ func DefaultSettings() *Settings {
 			},
 			InstructionsURL: &Setting{
 				Key:          "instructions_url",
-				Label:        "Setup Instructions",
+				Label:        "Setup instructions",
 				Description:  "View detailed instructions on how to set up the Surge browser extension.",
 				Type:         TypeLink,
 				DefaultValue: "https://github.com/SurgeDM/Surge#browser-extension",
@@ -1384,7 +1388,10 @@ func SaveSettings(s *Settings) error {
 			continue
 		}
 
-		catMap := make(map[string]any)
+		catMap, ok := raw[catKey].(map[string]any)
+		if !ok {
+			catMap = make(map[string]any)
+		}
 		for _, set := range cat.Settings {
 			if set.Type == TypeDuration {
 				if d, ok := set.Value.(time.Duration); ok {
