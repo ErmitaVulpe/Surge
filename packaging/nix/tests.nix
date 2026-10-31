@@ -89,6 +89,8 @@ let
     assert lib.hasInfix (builtins.unsafeDiscardStringContext "${package}/bin/hello") (
       builtins.toJSON argv
     );
+    assert lib.hasInfix "surge-server" (builtins.toJSON argv);
+    assert lib.hasInfix "/run/secrets/surge-token" (builtins.toJSON argv);
     assert !(lib.hasInfix "--token" (builtins.toJSON argv));
     assert
       if darwin then

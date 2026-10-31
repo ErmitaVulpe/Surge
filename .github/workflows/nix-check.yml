@@ -29,6 +29,7 @@ jobs:
           ref: ${{ inputs.source-ref || github.sha }}
           persist-credentials: false
       - run: node --test .github/scripts/nix-release.test.cjs
+      - run: bash packaging/nix/check-token-test.sh
 
   package:
     name: Package (${{ matrix.system }})

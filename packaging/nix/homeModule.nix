@@ -27,13 +27,27 @@
             "${config.home.homeDirectory}/Library/Application Support/surge"
           else
             "${config.xdg.stateHome}/surge";
-        serverArgs = [
+        rawServerArgs = [
           (lib.getExe cfg.package)
           "server"
           "start"
           "--managed-service"
         ]
         ++ cfg.headless.extraArgs;
+        checkedServer = pkgs.writeShellScript "surge-server" ''
+          export PATH=${lib.makeBinPath [ pkgs.gnugrep ]}:$PATH
+          ${builtins.readFile ./check-token.sh}
+        '';
+        serverArgs =
+          if isNull cfg.headless.tokenFile then
+            rawServerArgs
+          else
+            [
+              (toString checkedServer)
+              cfg.headless.tokenFile
+              "${stateDir}/token"
+            ]
+            ++ rawServerArgs;
       in
       {
         options.programs.surge = {
@@ -95,7 +109,7 @@
 
             tokenFile = lib.mkOption {
               type = lib.types.nullOr lib.types.str;
-              description = "Absolute path to a protected runtime file containing the API token (for example from sops-nix). Its contents are never copied into the Nix store. If null, Surge uses its persisted or auto-generated token; run `surge token` to view it.";
+              description = "Absolute path to a protected runtime file containing the API token (for example from sops-nix). Startup fails if the override is unavailable, unreadable, or empty. Its contents are never copied into the Nix store. If null, Surge uses its persisted or auto-generated token; run `surge token` to view it.";
               default = null;
             };
 
